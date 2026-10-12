@@ -1,0 +1,4 @@
+VAH01.csv filter=lfs diff=lfs merge=lfs -text
+VAH11.csv filter=lfs diff=lfs merge=lfs -text
+VAH12.csv filter=lfs diff=lfs merge=lfs -text
+VAH*.csv -text

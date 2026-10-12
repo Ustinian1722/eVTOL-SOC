@@ -1,0 +1,7 @@
+{
+  "meaning": "post-hoc hindsight upper bound; not causal or deployable",
+  "selection_labels": "held-out SOC_proxy errors across the test lifetime",
+  "update_rule": "same bounded latest-RPT affine head as online strategies",
+  "selection": "dynamic program minimizes total post-N20 proxy absolute error using up to B completed reference opportunities",
+  "budgets": [0, 2, 4, 6]
+}

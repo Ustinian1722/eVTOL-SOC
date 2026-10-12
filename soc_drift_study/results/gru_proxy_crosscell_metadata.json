@@ -1,0 +1,19 @@
+{
+  "model": "one-layer causal GRU over phase-summary observations",
+  "sequence_length_phase_summaries": 12,
+  "context_approximation": "current and up to 11 prior phase summaries within each 12-step chunk; hidden state resets at chunk boundaries",
+  "hidden_size": 16,
+  "epochs": 20,
+  "seeds": [
+    17,
+    31,
+    43
+  ],
+  "cell_group_folds": 5,
+  "target": "SOC_proxy, not independent true SOC",
+  "test_protocol": "leave held-out physical cells out of scaler/model training; evaluate later target missions; affine N20 head uses only target first 20 missions",
+  "training_rows_scope": "all labeled source-cell phase summaries; held-out target cells never enter source training",
+  "limitation": "phase-summary GRU, not raw high-rate V/I/T sequence and not FiberResearch GRU/SRA replication",
+  "wall_time_seconds": 69.45702850000816,
+  "device": "cpu"
+}

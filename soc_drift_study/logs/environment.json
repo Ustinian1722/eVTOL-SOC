@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-12",
+  "platform": "Windows 11",
+  "python": "3.13.5",
+  "packages": {
+    "numpy": "2.1.3",
+    "pandas": "2.2.3",
+    "matplotlib": "3.10.0",
+    "scipy": "1.15.3",
+    "scikit-learn": "1.6.1",
+    "joblib": "1.4.2",
+    "tensorflow": "2.20.0"
+  },
+  "sequence_training_device": "CPU",
+  "notes": "Base analysis uses requirements.txt; TensorFlow is optional and isolated in requirements-sequence.txt."
+}

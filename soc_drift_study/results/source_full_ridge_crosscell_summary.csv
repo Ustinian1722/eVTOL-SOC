@@ -1,0 +1,3 @@
+method,cells,median_proxy_MAE_pp,mean_proxy_MAE_pp,median_proxy_RMSE_pp,median_late_quartile_proxy_MAE_pp,median_P95_cycle_MAE_pp
+source_full_lifecycle_Ridge,22,2.138359903745469,2.803381878755625,2.459424883958257,2.2962846806341988,2.979980233595672
+source_full_lifecycle_Ridge_plus_target_N20_affine,22,1.8953667387086366,2.1035798579946237,2.257127116713983,2.2408037039671873,2.6020816810945187

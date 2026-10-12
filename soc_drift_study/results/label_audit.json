@@ -1,0 +1,27 @@
+{
+  "independent_soc_ground_truth_present": false,
+  "source_columns": [
+    "time_s",
+    "Ecell_V",
+    "I_mA",
+    "EnergyCharge_W_h",
+    "QCharge_mA_h",
+    "EnergyDischarge_W_h",
+    "QDischarge_mA_h",
+    "Temperature__C",
+    "cycleNumber",
+    "Ns"
+  ],
+  "offline_proxy_possible": true,
+  "proxy_definition": "Coulomb-counted SOC proxy may use measured QDischarge from the current mission and the latest completed earlier RPT capacity; use nominal 3 Ah only until the first valid RPT.",
+  "causal_rule": "Do not use the current RPT result to label its own cycle or interpolate future capacity backward. An RPT capacity becomes available only after that test completes.",
+  "limitations": [
+    "No independent electrochemical SOC or BMS SOC label is supplied.",
+    "A Q-based target is a reference proxy, not ground truth; MAE against it is not true-SOC accuracy.",
+    "Low-rate RPT capacity is not the same as high-rate mission-accessible capacity.",
+    "A mission discharge endpoint is not SOC=0; mission profiles leave residual capacity.",
+    "SOC during charging requires an estimated start SOC and charge-efficiency assumption."
+  ],
+  "rpt_candidate_rule": "A contiguous low-rate tail candidate has cumulative QDischarge >=1 Ah, mean current from -1.0 to -0.3 A, duration >=3000 s, and minimum voltage <=2.6 V. A >=1000 s sensitivity set is also exported. Candidate cycles require manual protocol review against README anomalies and impedance records.",
+  "cycle_index_note": "charge_cycle_index counts sustained contiguous Ns=0 segments (>100 s) and is an ordering proxy; it is not the raw tester cycleNumber and may drift when phases are missing or malformed."
+}

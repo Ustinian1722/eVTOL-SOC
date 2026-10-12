@@ -1,0 +1,22 @@
+{
+  "source_readme": "README.txt",
+  "main_files": 22,
+  "impedance_files": 21,
+  "expected_main_columns": [
+    "time_s",
+    "Ecell_V",
+    "I_mA",
+    "EnergyCharge_W_h",
+    "QCharge_mA_h",
+    "EnergyDischarge_W_h",
+    "QDischarge_mA_h",
+    "Temperature__C",
+    "cycleNumber",
+    "Ns"
+  ],
+  "chunk_rows": 250000,
+  "capacity_test_candidate_rule": "low-rate, long-duration discharge tail ending near 2.5 V",
+  "capacity_candidates_require_manual_protocol_review": true,
+  "reported_dataset_cycle_count": 21392,
+  "cycle_count_proxy": "contiguous Ns=0 charge phase lasting >100 s"
+}

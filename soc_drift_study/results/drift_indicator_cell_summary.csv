@@ -1,0 +1,3 @@
+indicator,cells,median_current_spearman,mean_current_spearman,positive_current_cells,median_future50_spearman,mean_future50_spearman,positive_future50_cells
+model_disagreement_pp,22,0.8929820458633105,0.773081427397749,22,0.9114042599336858,0.80749522323323,22
+voltage_residual_mV,22,0.8012810865394493,0.7237922155016163,21,0.8282913640079418,0.7465844504528548,21

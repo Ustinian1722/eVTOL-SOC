@@ -1,0 +1,9 @@
+{
+  "rows": 15309317,
+  "nonpositive_time_steps": 310,
+  "gaps_over_5min": 1,
+  "gaps_over_1h": 1,
+  "voltage_over_4p25V": 79,
+  "temperature_over_50C": 81439,
+  "rows_with_missing_or_nonnumeric_fields": 0
+}

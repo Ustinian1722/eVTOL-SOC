@@ -1,0 +1,97 @@
+{
+  "label_scope": "SOC_proxy only; not independent true SOC",
+  "prediction_commit": "score each mission before any current-cycle reference is released",
+  "request_reference_apply": "request after a mission; use the next selected completed candidate RPT; apply head from first later mission index",
+  "reference_data": "three low-rate discharge phase endpoints Ns 3/5/7 with capacity measured by that completed RPT",
+  "update": "bounded affine correction y=a*p+b, prior (a,b)=(1,0), prior strength 3; latest RPT replaces prior head",
+  "indicators": {
+    "model_disagreement": "absolute difference between N20 phase Ridge prediction and 3 Ah coulomb-counter estimate",
+    "voltage_residual": "absolute residual of N20-trained phase minimum-voltage Ridge using phase, duration, current, Vmax and temperature; Vmin target is excluded from inputs; not an ECM time-series residual",
+    "page_hinkley": "Page-Hinkley-style cumulative standardized residual with running minimum; delta=0.5, threshold=5; fixed training center",
+    "cusum": "one-sided cumulative standardized residual; kappa=0.25, threshold=5",
+    "adwin_like": "fixed 20-vs-20 mean-shift check; not a full adaptive ADWIN implementation",
+    "threshold": "N20 median + 3 robust standard deviations; no test-time threshold search"
+  },
+  "budget": "B is a maximum number of completed RPT references; actual count is reported; periodic/random/hybrid use evenly spaced or sampled observed opportunities",
+  "random_seeds": [
+    11,
+    23,
+    37,
+    41,
+    53
+  ],
+  "cell_level_bootstrap_seed": 20261012,
+  "configuration": {
+    "label_scope": "SOC_proxy only; not independent true SOC",
+    "training_mission_cycles_per_cell": 20,
+    "rpt_phases": [
+      3,
+      5,
+      7
+    ],
+    "rpt_current_range_mA": [
+      -1000,
+      -300
+    ],
+    "max_reference_budgets": [
+      2,
+      4,
+      6
+    ],
+    "random_seeds": [
+      11,
+      23,
+      37,
+      41,
+      53
+    ],
+    "voltage_residual_features": [
+      "phase_Ns",
+      "duration_s",
+      "I_mean_A",
+      "I_peak_A",
+      "Vmax_V",
+      "Tmean_C",
+      "Tmax_C"
+    ],
+    "model_disagreement": "absolute N20 phase Ridge prediction minus nominal-3-Ah coulomb-counter estimate",
+    "threshold_factor_robust_scale": 3.0,
+    "page_hinkley_style": {
+      "delta_standardized": 0.5,
+      "threshold": 5.0
+    },
+    "cusum": {
+      "allowance_standardized": 0.25,
+      "threshold": 5.0
+    },
+    "adwin_like": {
+      "window_observations": 40,
+      "half_window": 20,
+      "bound_multiplier": 2.0
+    },
+    "head_update": {
+      "form": "bounded affine calibration y = a*p + b",
+      "prior": [
+        1.0,
+        0.0
+      ],
+      "prior_strength": 3.0,
+      "scale_bounds": [
+        0.5,
+        1.5
+      ],
+      "bias_bounds": [
+        -0.15,
+        0.15
+      ],
+      "default_reference_replay_window": 1,
+      "replay_sensitivity_window": 3
+    },
+    "bootstrap": {
+      "resampling_unit": "physical cell",
+      "draws": 10000,
+      "seed": 20261012
+    }
+  },
+  "excluded": "FBG-based SRA from FiberResearch; eVTOL data contain no FBG signal"
+}

@@ -1,0 +1,3 @@
+method,cell_seed_evaluations,cells,median_proxy_MAE_pp,mean_proxy_MAE_pp,median_proxy_RMSE_pp,median_late_quartile_proxy_MAE_pp,median_P95_cycle_MAE_pp,median_worst_cycle_MAE_pp
+source_GRU_leave_cells_out,66,22,1.1931489419533274,1.5815314254173218,1.6548809454976605,1.3813047230260884,2.344286169856145,4.59660276120639
+source_GRU_plus_target_N20_affine,66,22,1.5556088755461226,1.6587093635258792,1.982320298968089,1.88961645565728,2.674556713423285,4.344406201730893
