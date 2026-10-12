@@ -1,0 +1,58 @@
+name: Active RPT Update Audit
+
+on:
+  push:
+    branches:
+      - research/active-rpt-update-audit-v1
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: active-rpt-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Reproduce domain shift and update audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - name: Checkout analysis and derived CSV files (LFS raw cells not required)
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Install analysis dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run isolated synthetic unit tests
+        run: python -m unittest discover -s tests -p 'test_active_rpt_audit.py' -v
+      - name: Analyze RPT-to-mission update domain shift
+        run: python scripts/active_rpt_update_audit.py --output-dir active_rpt_audit_artifacts
+      - name: Publish run summary
+        if: always()
+        run: |
+          if [ -f active_rpt_audit_artifacts/report.md ]; then
+            cat active_rpt_audit_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload reproducible reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: active-rpt-update-audit
+          path: soc_drift_study/active_rpt_audit_artifacts/
+          if-no-files-found: warn
+          retention-days: 30
