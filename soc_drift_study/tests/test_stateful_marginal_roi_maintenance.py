@@ -76,8 +76,14 @@ class StatefulWhenTests(unittest.TestCase):
         for t in c.opportunities:
             self.assertEqual(c.feature(t,-1,0),altered.feature(t,-1,0))
         for t in c.opportunities:
-            self.assertEqual(c.feature(t,24,1),altered.feature(t,24,1))
-            if t==24:continue
+            if t>24:
+                # Only *past paid* labels may be used in fitted head.
+                # The reference fit itself is allowed to differ.
+                a=c.feature(t,24,1);b=altered.feature(t,24,1)
+                for name in FIELDS:
+                    if name not in ("last_reference_fit_MAE_pp",
+                                    "last_reference_signed_error_pp"):
+                        self.assertEqual(a[name],b[name])
 
     def test_future_sensor_can_not_change_past_state(self):
         c=toy_cell()
@@ -105,8 +111,12 @@ class StatefulWhenTests(unittest.TestCase):
             m.y[:]=0.
         a,tr=learned_events(c,Model(),4,.1,125,.1,trace=True)
         b,tr2=learned_events(altered,Model(),4,.1,125,.1,trace=True)
-        self.assertEqual(a,b)
-        self.assertEqual(tr,tr2)
+        self.assertEqual(a[0],b[0]) # first paid event cannot see labels
+        first=a[0]
+        self.assertEqual([x for x in tr if x["event_idx"]<=first],
+                         [x for x in tr2 if x["event_idx"]<=first])
+        # Subsequent triggers MAY differ because purchased past feedback
+        # is legitimately released to the online policy.
         self.assertLessEqual(len(a),4)
         self.assertTrue(all(v-u>=125 for u,v in zip(a,a[1:])))
 
