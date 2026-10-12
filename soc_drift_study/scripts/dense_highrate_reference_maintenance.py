@@ -39,8 +39,9 @@ GRID_START=24
 GRID_STRIDE=25
 BUDGETS=(0,2,4)
 DENSITIES=("endpoints3","uniform16","native_all","native_phase_balanced")
-POLICIES=("frozen","periodic_planned","periodic150","random",
-          "disagreement3","voltage3","joint3","offline_oracle")
+POLICIES=("frozen","periodic_planned","periodic150",
+          "periodic200","periodic250","periodic300","periodic400","periodic500",
+          "random","disagreement3","voltage3","joint3","offline_oracle")
 COSTS=(0.0,0.1,0.3)
 FIELDS=["time_s","Ecell_V","I_mA","Temperature__C",
         "QDischarge_mA_h","Ns"]
@@ -293,7 +294,10 @@ def choose_when(sensors,opportunities,n,budget,policy,cid):
         dcount=dcount+1 if dz[i]>2.5 else 0
         vcount=vcount+1 if vz[i]>2.5 else 0
         if i not in cand or len(selected)>=budget or i-last<50:continue
-        if policy=="periodic150":fire=(i+1)%150==0
+        if policy.startswith("periodic") and policy[8:].isdigit():
+            # A genuinely horizon-blind strict fixed-cadence policy.
+            interval=int(policy[8:])
+            fire=(i+1)%interval==0
         elif policy=="disagreement3":fire=dcount>=3
         elif policy=="voltage3":fire=vcount>=3
         elif policy=="joint3":fire=(dcount>=3 and vcount>=3)
@@ -524,6 +528,7 @@ def report(results,manifest,macro):
         "## Decision",
         "- First test whether fixed supervised WHOLE-CURVE calibration improves Frozen for the majority of cells. If not, no credible WHEN paper result follows.",
         "- Even with positive WHEN result, compare strict fixed-horizon-blind periodic150 and explicitly planned periodic; the latter knows retrospective lifespan.",
+        "- Sparse periodic200/250/300/400/500 are honest, horizon-blind, LOWER-MAINTENANCE baselines. Selecting among these after looking at the same 22 test cells is retrospective and NOT a valid trained active policy.",
         "- An Oracle advantage demonstrates theoretical headroom only; a positive implementable policy requires cell-block heldout comparison with uncertainty.",
         "- The nominal capacity integral is an explicit feature AND historic target proxy uses prior-RPT capacity; model may predominantly identify changing effective capacity rather than independently recover true SOC. Interpret claims accordingly.",
     ]
