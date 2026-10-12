@@ -1,0 +1,59 @@
+name: Full 22 Cell Dense Supervised SOC Calibration WHEN
+
+on:
+  push:
+    branches: [research/dense-flight-calibration-when-v1-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full22-dense-when-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full22:
+    name: All 22 cells true normal-rate logged samples and physical-cell CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Inspect Python causal tests and exact oracle
+        run: python -m unittest discover -s tests -p 'test_dense_highrate_reference_maintenance.py' -v
+      - name: Download the three original LFS raw cells
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Execute full raw samplewise normal flight calibration timing
+        run: |
+          python -u scripts/dense_highrate_reference_maintenance.py \
+            --cells VAH01 VAH02 VAH05 VAH06 VAH07 VAH09 VAH10 VAH11 VAH12 VAH13 VAH15 VAH16 VAH17 VAH20 VAH22 VAH23 VAH24 VAH25 VAH26 VAH27 VAH28 VAH30 \
+            --output-dir dense_reference_22cells_artifacts
+      - name: Scientific summary
+        if: always()
+        run: |
+          if test -s dense_reference_22cells_artifacts/report.md; then
+            cat dense_reference_22cells_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full22-original-flight-supervised-when
+          path: soc_drift_study/dense_reference_22cells_artifacts/
+          if-no-files-found: warn
+          retention-days: 30
