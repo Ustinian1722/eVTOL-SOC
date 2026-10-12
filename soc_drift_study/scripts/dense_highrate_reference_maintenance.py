@@ -451,7 +451,35 @@ def all_data(cells,out,skip_missing=False):
     return results,events,manifest
 
 
-def report(results,manifest):
+def macro_comparisons(results):
+    """Physical-cell paired uncertainty, one decision per physical cell."""
+    sel=results[(results.budget==4)&(np.isclose(results.price,.1))]
+    lines=[]
+    for density,allrows in sel.groupby("density"):
+        per=allrows[allrows.policy=="periodic150"][["cell_id","MAE_pp","total_J_eventcost"]].rename(
+            columns={"MAE_pp":"periodic_MAE","total_J_eventcost":"periodic_J"})
+        for policy,g in allrows.groupby("policy"):
+            joined=g.merge(per,on="cell_id",validate="one_to_one")
+            d=(joined.MAE_pp-joined.periodic_MAE).to_numpy()
+            j=(joined.total_J_eventcost-joined.periodic_J).to_numpy()
+            rnd=np.random.default_rng(SEED)
+            ix=rnd.integers(0,len(d),size=(8000,len(d)))
+            ci=np.quantile(d[ix].mean(axis=1),[.025,.975])
+            ji=np.quantile(j[ix].mean(axis=1),[.025,.975])
+            lines.append({
+                "density":density,"policy":policy,"physical_cells":len(d),
+                "median_MAE_pp":float(joined.MAE_pp.median()),
+                "median_maintenance_events":float(joined.maintenance_events.median()),
+                "mean_delta_MAE_vs_fixed_periodic_pp":float(d.mean()),
+                "MAE_CI_low":float(ci[0]),"MAE_CI_high":float(ci[1]),
+                "mean_delta_totalJ_vs_fixed_periodic":float(j.mean()),
+                "J_CI_low":float(ji[0]),"J_CI_high":float(ji[1]),
+                "cells_better_MAE_than_periodic":int((d<0).sum()),
+            })
+    return pd.DataFrame(lines)
+
+
+def report(results,manifest,macro):
     lines=[
         "# Native full-flight high-rate SOC_proxy purchased calibration: WHOLE-CURVE WHEN pilot",
         "",
@@ -480,6 +508,19 @@ def report(results,manifest):
             lines.append(f"| {density} | {policy} | {g.MAE_pp.median():.3f} | {g.total_J_eventcost.mean():.3f} | {g.maintenance_events.median():.0f} | {g.labels_bought.median():.0f} |")
     lines+=[
         "",
+        "## Physical-cell paired comparisons at B=4, λ=.1",
+        "","| Reference | Policy | Cell count | Mean Δ MAE vs fixed150 [95% cell-bootstrap CI] | Mean Δ total J [CI] | Better cells |",
+        "|---|---|---:|---|---|---:|",
+    ]
+    for z in macro.itertuples():
+        lines.append(
+            f"| {z.density} | {z.policy} | {z.physical_cells} | "
+            f"{z.mean_delta_MAE_vs_fixed_periodic_pp:+.3f} [{z.MAE_CI_low:+.3f},{z.MAE_CI_high:+.3f}] | "
+            f"{z.mean_delta_totalJ_vs_fixed_periodic:+.3f} [{z.J_CI_low:+.3f},{z.J_CI_high:+.3f}] | "
+            f"{z.cells_better_MAE_than_periodic}/{z.physical_cells} |"
+        )
+    lines+=[
+        "",
         "## Decision",
         "- First test whether fixed supervised WHOLE-CURVE calibration improves Frozen for the majority of cells. If not, no credible WHEN paper result follows.",
         "- Even with positive WHEN result, compare strict fixed-horizon-blind periodic150 and explicitly planned periodic; the latter knows retrospective lifespan.",
@@ -499,6 +540,8 @@ def main():
     results.to_csv(out/"dense_curve_supervised_WHEN_cell_policy.csv",index=False)
     events.to_csv(out/"reference_release_times_and_sample_cost.csv",index=False)
     manifest.to_csv(out/"dense_curve_raw_quality_manifest.csv",index=False)
+    macro=macro_comparisons(results)
+    macro.to_csv(out/"physical_cell_paired_policy_CI.csv",index=False)
     metadata={
         "purpose":"complete native sampled normal high-power flight reference supervised calibration WHEN",
         "cells":args.cells,
@@ -515,7 +558,7 @@ def main():
         "reference_broker_precomputed_labels_offline":"only scorer and fixed post-purchase calibrator receive the label bank",
     }
     (out/"metadata.json").write_text(json.dumps(metadata,indent=2,ensure_ascii=False),encoding="utf-8")
-    text=report(results,manifest)
+    text=report(results,manifest,macro)
     (out/"report.md").write_text(text,encoding="utf-8")
     print(text,flush=True)
 
