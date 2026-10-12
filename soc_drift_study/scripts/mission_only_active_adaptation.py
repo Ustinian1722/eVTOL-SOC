@@ -256,13 +256,24 @@ def replay_cell(cell: pd.DataFrame, target_track: str, arm: tuple[str,str,str]) 
     z_window = deque(maxlen=WINDOW)
     norm_offset = None  # updated only after an accepted mission-only event
     predictions = []
+    # Vectorized one-time feature transforms: O(tasks) tiny NumPy operations
+    # rather than 500k pandas/scikit transformations in CI. Same protocol.
+    allZ = _matrix(base, test)
+    index_values = test["charge_cycle_index"].to_numpy(dtype=int)
+    boundaries = np.r_[0, np.flatnonzero(np.diff(index_values)) + 1, len(test)]
+    allQ = test["QDischarge_end_Ah"].to_numpy(dtype=float)
+    allSocScoreOnly = test["SOC_proxy"].to_numpy(dtype=float)
+    allPhase = test["phase_Ns"].to_numpy(dtype=int)
+    allVoltage = test["Vmin_V"].to_numpy(dtype=float)
+    voltagePreds = voltage.predict(test[V_FEATURES])
     rng = np.random.default_rng(SEED + sum(ord(c) for c in str(cell.cell_id.iloc[0])))
     task_total = 0
-    for cycle, g in test.groupby("charge_cycle_index", sort=True):
+    for start, stop in zip(boundaries[:-1], boundaries[1:]):
+        cycle = int(index_values[start])
         task_total += 1
-        Zfull = _matrix(base, g)
+        Zfull = allZ[start:stop]
         Z = Zfull[:, 1:]
-        q = g["QDischarge_end_Ah"].to_numpy(dtype=float)
+        q = allQ[start:stop]
         # Feature normalization uses *past* completed missions only.
         if kind == "norm" and norm_offset is not None:
             current_prediction = np.clip(theta[0] + (Z - norm_offset) @ theta[1:], 0, 1)
@@ -271,15 +282,15 @@ def replay_cell(cell: pd.DataFrame, target_track: str, arm: tuple[str,str,str]) 
         predictions.append({
             "cycle": int(cycle),
             "errors_pp": (current_prediction -
-                          g["SOC_proxy"].to_numpy(dtype=float)) * 100,
-            "phase": g["phase_Ns"].to_numpy(),
+                          allSocScoreOnly[start:stop]) * 100,
+            "phase": allPhase[start:stop],
             "pred": current_prediction,
         })
         # Only after prediction: mission's sensor/throughput measurements may
         # enter trigger and update buffers. Evaluation labels are NOT read.
         frozen_prediction = np.clip(Zfull @ frozen, 0, 1)
         v_score = float(np.mean(np.abs(
-            g["Vmin_V"].to_numpy(dtype=float) - voltage.predict(g[V_FEATURES])
+            allVoltage[start:stop] - voltagePreds[start:stop]
         ) * 1000))
         d_score = mission_consistency(frozen, Z, q)
         if not np.isfinite(d_score):
