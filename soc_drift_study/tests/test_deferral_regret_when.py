@@ -46,7 +46,11 @@ class DeferralTests(unittest.TestCase):
         a,events=decide(c,models,config,3,.1,trace=True)
         b,altered_events=decide(altered,models,config,3,.1,trace=True)
         self.assertEqual(a,b)
-        self.assertEqual(events,altered_events)
+        # Pre-first-purchase trace cannot change under hidden label
+        # perturbation. Later records MAY use legitimately bought SOC.
+        first=a[0]
+        self.assertEqual([x for x in events if x["event_idx"]<=first],
+                         [x for x in altered_events if x["event_idx"]<=first])
         self.assertTrue(all(y-x>=125 for x,y in zip(a,a[1:])))
         self.assertLessEqual(len(a),3)
 
