@@ -42,7 +42,10 @@ SOURCE_COUNT=14
 MIN_PAUSE=75
 COSTS=(0.0,.10,.30)
 DECISIONS=("frozen","periodic_horizon","periodic_150",
-           "learned_positive","learned_conservative","offline_oracle")
+           "learned_positive","learned_conservative",
+           "learned_75pct_OOF","learned_90pct_OOF",
+           "learned_cost_value","offline_oracle")
+PLANNING_HORIZON=500  # declared horizon ASSUMPTION, not target future knowledge
 FEATURE_NAMES=[
     "mission_seen",
     "last_disagreement_z","disagreement_30_mean","disagreement_30_slope",
@@ -153,12 +156,14 @@ def train_select_development(meta):
     nfolds=min(5,len(np.unique(ids)))
     cv=GroupKFold(n_splits=nfolds)
     cvrows=[]
+    oof={}
     for name,ctor in candidates().items():
         preds=np.full(len(meta),np.nan)
         for tr,vl in cv.split(X,y,ids):
             m=ctor()
             m.fit(X.iloc[tr],y[tr])
             preds[vl]=m.predict(X.iloc[vl])
+        oof[name]=preds
         df=pd.DataFrame({"cell_id":ids,"true":y,"pred":preds})
         # Optimizing fold-held-cell error, never challenge labels.
         cell_mse=df.assign(mse=(df.true-df.pred)**2).groupby("cell_id").mse.mean()
@@ -169,7 +174,7 @@ def train_select_development(meta):
     winner=out.sort_values(["CV_cell_macro_MSE","name"]).iloc[0]["name"]
     model=candidates()[winner]()
     model.fit(X,y)
-    return model,out,str(winner)
+    return model,out,str(winner),oof[str(winner)]
 
 
 def learned_schedule(cell,opportunities,model,budget,threshold):
@@ -190,7 +195,7 @@ def learned_schedule(cell,opportunities,model,budget,threshold):
     return selected,preds
 
 
-def replay(cell,bank,opportunities,policy,budget,price,model):
+def replay(cell,bank,opportunities,policy,budget,price,model,thresholds):
     if policy=="offline_oracle":
         events=oracle_DP(cell,bank,opportunities,budget,cost_per_event_pp=price)
         pred=[]
@@ -198,6 +203,18 @@ def replay(cell,bank,opportunities,policy,budget,price,model):
         events,pred=learned_schedule(cell,opportunities,model,budget,threshold=.0)
     elif policy=="learned_conservative":
         events,pred=learned_schedule(cell,opportunities,model,budget,threshold=.12)
+    elif policy=="learned_75pct_OOF":
+        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=thresholds["q75"])
+    elif policy=="learned_90pct_OOF":
+        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=thresholds["q90"])
+    elif policy=="learned_cost_value":
+        # The model forecasts average improvement over 100 missions. To
+        # compare with total-lifetime MAE-pp-equivalent event price, assume
+        # a fixed 500-mission planning denominator known at design time.
+        # This heuristic must never read the challenge cell's true horizon.
+        events,pred=learned_schedule(
+            cell,opportunities,model,budget,threshold=price*PLANNING_HORIZON/FUTURE
+        )
     else:
         events=online_schedule(cell,opportunities,policy,budget)
         pred=[]
@@ -242,7 +259,7 @@ def pair_ci(frame,price=.1,budget=4):
     return paired,pd.DataFrame(macro)
 
 
-def report(meta,cv,chosen,challenge,macro,diagnostics):
+def report(meta,cv,chosen,challenge,macro,diagnostics,thresholds):
     content=[
         "# Learned WHEN from purchased high-rate SOC reference counterfactuals",
         "",
@@ -259,6 +276,8 @@ def report(meta,cv,chosen,challenge,macro,diagnostics):
         "## Model choice on source cells ONLY",
         f"- Development source candidates: {len(meta)} over {meta.cell_id.nunique()} cells.",
         f"- 5-fold group-CV winner: {chosen}.",
+        f"- Source group-CV prediction thresholds: upper quartile={thresholds['q75']:.3f} pp, upper decile={thresholds['q90']:.3f} pp. Fixed BEFORE 8-cell challenge.",
+        "- Price-gated variant requires predicted 100-task MAE benefit above λ×500/100, with design-time 500-task planning horizon (not known target lifespan).",
         "| Method | 5-fold group-cell macro MSE (pp²) | CV rank correlation |",
         "|---|---:|---:|",
     ]
@@ -304,7 +323,8 @@ def main():
     test={c for c in split if c not in dev}
     train=make_source_meta(cells,dev)
     if len(train)<150:raise AssertionError("Insufficient source ROI examples")
-    model,cv,chosen=train_select_development(train)
+    model,cv,chosen,oof=train_select_development(train)
+    thresholds={"q75":float(np.quantile(oof,.75)),"q90":float(np.quantile(oof,.90))}
     rows=[];times=[];diagnostics=[]
     for cid in sorted(test):
         cell=cells[cid]
@@ -320,7 +340,7 @@ def main():
         for price in COSTS:
             for budget in (2,4):
                 for arm in DECISIONS:
-                    r,steps=replay(cell,bank,opportunities,arm,budget,price,model)
+                    r,steps=replay(cell,bank,opportunities,arm,budget,price,model,thresholds)
                     rows.append(r)
                     for e in steps:
                         times.append({"cell_id":cid,"policy":arm,
@@ -344,9 +364,10 @@ def main():
     macro.to_csv(out/"challenge_macro_lambda01_B4.csv",index=False)
     d.to_csv(out/"challenge_offline_ROI_diagnostic_DO_NOT_USE_FOR_SELECTION.csv",index=False)
     pd.DataFrame(times).to_csv(out/"challenge_pre_purchase_predictions_and_actions.csv",index=False)
-    (out/"report.md").write_text(report(train,cv,chosen,results,macro,diag),encoding="utf-8")
+    (out/"report.md").write_text(report(train,cv,chosen,results,macro,diag,thresholds),encoding="utf-8")
     (out/"metadata.json").write_text(json.dumps({
         "split":split,"chosen_on_dev_only":chosen,"source_cv":cv.to_dict(orient="records"),
+        "source_only_quantile_gates":thresholds,"planning_horizon_hypothesis_missions":PLANNING_HORIZON,
         "normal_mission_label_broker":"3 phase-end SOC_proxy points per maintenance",
         "ONLINE_DOES_NOT_USE":["SOC_proxy hidden until purchase","future ROI","RPT curve","true SOH"],
         "original_label_definition":"Coulomb count normalized by preceding RPT capacity",
