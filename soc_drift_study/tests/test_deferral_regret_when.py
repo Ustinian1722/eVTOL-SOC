@@ -43,8 +43,8 @@ class DeferralTests(unittest.TestCase):
         for m in altered.test:m.y[:]=0.
         models=(ConstantPredictor(.9),ConstantPredictor(.3))
         config=("delay",125,.12)
-        a,events=decide(c,models,3,.1,config,trace=True)
-        b,altered_events=decide(altered,models,3,.1,config,trace=True)
+        a,events=decide(c,models,config,3,.1,trace=True)
+        b,altered_events=decide(altered,models,config,3,.1,trace=True)
         self.assertEqual(a,b)
         self.assertEqual(events,altered_events)
         self.assertTrue(all(y-x>=125 for x,y in zip(a,a[1:])))
@@ -54,7 +54,7 @@ class DeferralTests(unittest.TestCase):
         c=toy_cell(n=210)
         models=(ConstantPredictor(.9),ConstantPredictor(.3))
         conf=("reserve",75,0.)
-        selected,logs=decide(c,models,4,.1,conf,trace=True)
+        selected,logs=decide(c,models,conf,4,.1,trace=True)
         self.assertTrue(all(log["reserve"]>=0 for log in logs))
         res=[log["reserve"] for log in logs]
         self.assertTrue(all(b>=a for a,b in zip(res,res[1:])))
@@ -64,7 +64,7 @@ class DeferralTests(unittest.TestCase):
         c=toy_cell(n=200)
         self.assertEqual(c.opportunities[-1],199)
         selected,log=decide(c,(ConstantPredictor(.9),ConstantPredictor(.5)),
-                            4,.1,("delay_only",75,0.),trace=True)
+                            ("delay_only",75,0.),4,.1,trace=True)
         self.assertLessEqual(len(selected),4)
         self.assertTrue(all(t in c.opportunities for t in selected))
 
