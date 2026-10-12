@@ -250,9 +250,11 @@ def _report(cell: pd.DataFrame, events: pd.DataFrame, controls: pd.DataFrame) ->
         joined = subset.set_index("cell_id")[["proxy_MAE_pp"]].join(
             frozen[["proxy_MAE_pp"]], rsuffix="_frozen"
         )
-        deltas.append((policy, float(
-            (joined["proxy_MAE_pp"] - joined["proxy_MAE_pp_frozen"]).mean()
-        )))
+        paired = (joined["proxy_MAE_pp"] - joined["proxy_MAE_pp_frozen"]).to_numpy()
+        rng = np.random.default_rng(20261012)
+        draws = rng.choice(paired, size=(10000, len(paired)), replace=True).mean(axis=1)
+        ci = np.quantile(draws, [0.025, 0.975])
+        deltas.append((policy, float(paired.mean()), float(ci[0]), float(ci[1]), int((paired < 0).sum())))
     lines = [
         "# RPT-to-mission adaptation: matched offline B=4 audit",
         "",
@@ -268,25 +270,34 @@ def _report(cell: pd.DataFrame, events: pd.DataFrame, controls: pd.DataFrame) ->
         "",
         "## Matched policy comparison",
         "",
-        "| Policy | Cells | Median MAE (pp) | Mean MAE (pp) | Late MAE (pp) | P95-cycle MAE (pp) | Mean paired delta vs frozen (pp) |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Policy | Cells | Median MAE (pp) | Mean MAE (pp) | Late MAE (pp) | P95-cycle MAE (pp) | Mean paired delta vs frozen (pp) | 95% cell-bootstrap CI (pp) | Cells improved |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    delta_dict = dict(deltas)
+    delta_dict = {d[0]: d[1:] for d in deltas}
     for row in by_policy.itertuples():
         lines.append(
             f"| {row.policy} | {row.physical_cells} | {row.median_MAE_pp:.3f} | "
             f"{row.mean_MAE_pp:.3f} | {row.median_late_MAE_pp:.3f} | "
-            f"{row.median_P95_cycle_MAE_pp:.3f} | {delta_dict[row.policy]:+.3f} |"
+            f"{row.median_P95_cycle_MAE_pp:.3f} | {delta_dict[row.policy][0]:+.3f} | "
+            f"[{delta_dict[row.policy][1]:+.3f}, {delta_dict[row.policy][2]:+.3f}] | "
+            f"{delta_dict[row.policy][3]} |"
         )
     scored = events.dropna(subset=["mission_delta_mae_pp"])
     harmful = int(scored["mission_delta_mae_pp"].gt(0).sum()) if not scored.empty else 0
     n = len(scored)
     eligible = int(events["current_support_eligible"].sum()) if not events.empty else 0
+    rpt_fit_improved = int((events["rpt_after_mae_pp"] < events["rpt_before_mae_pp"]).sum())
+    paired_transfer_harm = int((
+        scored["mission_delta_mae_pp"].gt(0)
+        & scored["rpt_after_mae_pp"].lt(scored["rpt_before_mae_pp"])
+    ).sum())
     lines += [
         "", "## RPT domain shift and update harm",
         "",
         f"- RPT events in B4 replay: {len(events)}; current-support-gate eligible: {eligible}.",
         f"- Paired next-50-mission windows with an observed task: {n}; legacy affine raises proxy MAE in {harmful}/{n}.",
+        f"- RPT own-domain fit improved in {rpt_fit_improved}/{len(events)} selected references.",
+        f"- RPT fit improves BUT next-50-mission transfer worsens in {paired_transfer_harm}/{n} evaluated windows.",
         f"- Median reference current: {events['rpt_median_current_A'].median():.3f} A.",
         f"- Mission-training current-support medians (q05–q95): {events['mission_train_current_q05_A'].median():.3f} to {events['mission_train_current_q95_A'].median():.3f} A.",
         "- RPT fit improvement with simultaneous mission deterioration is evidence of domain transfer risk, not proof of a particular electrochemical mechanism.",
