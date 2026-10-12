@@ -78,9 +78,13 @@ def evaluate_challenge(test,model,selected):
                                    "periodic250","periodic300",
                                    "offline_oracle",z.source_chosen])):
                 r=evaluate_one(cell,model,arm,z.budget,z.price)
-                rows.append({"cell_id":cid,"budget":z.budget,"price":z.price,
-                             "policy":arm,"selected":int(arm==z.source_chosen),
-                             **r})
+                # r may carry a generic "policy=learning" from the shared
+                # supervised-head evaluator. The menu arm must remain the
+                # canonical identity; otherwise active is mislabeled as
+                # periodic in downstream summaries.
+                rows.append({**r,"cell_id":cid,"budget":z.budget,
+                             "price":z.price,"policy":arm,
+                             "selected":int(arm==z.source_chosen)})
         print("RETROSPECTIVE challenge",cid,flush=True)
     res=pd.DataFrame(rows)
     assert res.groupby(["cell_id","budget","price"]).selected.sum().eq(1).all()
