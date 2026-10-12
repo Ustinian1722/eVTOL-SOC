@@ -1,0 +1,51 @@
+name: Source-Trained Update Value Active SOC Pilot
+
+on:
+  push:
+    branches: [research/learned-update-value-20261012]
+  pull_request:
+    branches: [research/mission-value-trigger-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: learned-utility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross_cell:
+    name: 14-source-cell value model, 8 retrospective challenge cells
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Synthetic tests (label blinding, decision chronology, source policy)
+        run: python -m unittest discover -s tests -p 'test_learned_mission_update_value.py' -v
+      - name: Train ROI model on source cells and evaluate unseen-in-code challenge group
+        run: python scripts/learned_mission_update_value.py --output-dir learned_roi_artifacts
+      - name: GitHub report
+        if: always()
+        run: |
+          if test -s learned_roi_artifacts/report.md; then
+            cat learned_roi_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: learned-update-value-8cell-challenge
+          path: soc_drift_study/learned_roi_artifacts
+          if-no-files-found: warn
+          retention-days: 30
