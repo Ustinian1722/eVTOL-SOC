@@ -1,0 +1,99 @@
+name: Nested 22-Cell SOC Reference WHEN x Cost and Deployment Latency
+
+on:
+  push:
+    branches:
+      - research/nested-cell-benchmark-cost-regret-20261012
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nested-cell-when-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  outer_fold:
+    name: Nested outer physical-cell fold ${{ matrix.fold }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        fold: [0, 1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Outer split and strictly delayed label-release tests
+        run: |
+          python -m unittest discover -s tests -p 'test_nested_cell_when.py' -v
+          python -m unittest discover -s tests -p 'test_deferral_regret_when.py' -v
+          python -m unittest discover -s tests -p 'test_stateful_marginal_roi_maintenance.py' -v
+      - name: Materialize three original LFS files only
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Run nested inner-selection plus outer scoring
+        run: |
+          OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/nested_cell_when_5fold.py \
+            --outer-fold ${{ matrix.fold }} \
+            --out nested_fold_artifacts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nested-fold-${{ matrix.fold }}
+          path: soc_drift_study/nested_fold_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
+
+  aggregate:
+    name: Assemble 22 held-cell outcomes and latency stress test
+    needs: outer_fold
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nested-fold-*
+          path: soc_drift_study/nested_download/
+          merge-multiple: false
+      - name: Verify every outer cell scored exactly once, aggregate uncertainty
+        run: |
+          python -u scripts/aggregate_nested_cell_when.py \
+            --fold-dirs nested_download/nested-fold-0 nested_download/nested-fold-1 \
+                        nested_download/nested-fold-2 nested_download/nested-fold-3 \
+                        nested_download/nested-fold-4 \
+            --out nested_22_summary
+      - name: Publish scientific summary
+        run: cat nested_22_summary/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nested-22-physical-cell-when-cost-and-latency
+          path: soc_drift_study/nested_22_summary/
+          retention-days: 30
+          if-no-files-found: warn
