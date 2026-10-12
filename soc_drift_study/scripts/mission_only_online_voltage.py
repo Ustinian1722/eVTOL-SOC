@@ -250,6 +250,22 @@ def summarize(rows:pd.DataFrame)->tuple[pd.DataFrame,pd.DataFrame]:
         median_attempts=("attempts","median"),
         median_accepted=("accepted","median"),
     )
+    ci_rows=[]
+    for (track,arm,corr), subset in joined.groupby(["track","arm","soc_voltage_normalization_strength"]):
+        delta_soc=subset["delta_soc_pp"].to_numpy()
+        delta_v=subset["delta_voltage_mV"].to_numpy()
+        rng=np.random.default_rng(SEED)
+        draws=rng.integers(0,len(subset),size=(5000,len(subset)))
+        b_soc=delta_soc[draws].mean(axis=1)
+        b_v=delta_v[draws].mean(axis=1)
+        scilo,scihi=np.quantile(b_soc,[.025,.975])
+        vlo,vhi=np.quantile(b_v,[.025,.975])
+        ci_rows.append({
+            "track":track,"arm":arm,"soc_voltage_normalization_strength":corr,
+            "soc_ci_lo":scilo,"soc_ci_hi":scihi,
+            "voltage_ci_lo":vlo,"voltage_ci_hi":vhi,
+        })
+    agg=agg.merge(pd.DataFrame(ci_rows),on=["track","arm","soc_voltage_normalization_strength"])
     return joined,agg
 
 
@@ -280,10 +296,25 @@ def report(agg:pd.DataFrame)->str:
                 f"{x.median_attempts:.0f}/{x.median_accepted:.0f} |"
             )
         lines.append("")
+    lines += [
+        "## Paired cell-bootstrap uncertainty (mean change relative to frozen)",
+        "",
+        "| N20 labels | Voltage model | SOC correction | SOC mean delta & 95% CI (pp) | Voltage mean delta & 95% CI (mV) |",
+        "|---|---|---:|---|---|",
+    ]
+    for x in agg[agg.soc_voltage_normalization_strength.eq(.5)].sort_values(
+        ["track","delta_soc_pp"]
+    ).itertuples():
+        lines.append(
+            f"| {x.track} | {x.arm} | 0.5 | "
+            f"{x.delta_soc_pp:+.3f} [{x.soc_ci_lo:+.3f},{x.soc_ci_hi:+.3f}] | "
+            f"{x.delta_voltage_mV:+.2f} [{x.voltage_ci_lo:+.2f},{x.voltage_ci_hi:+.2f}] |"
+        )
     lines+= [
         "## Interpretation",
         "- An improved voltage model need not improve SOC: correcting a Vmin input to its early-regime reference may delete useful aging information.",
-        "- Voltage is an independent measured online target; SOC reference remains a charge-counting proxy, not independently measured SOC.",
+        "- Voltage is directly measured at the same phase end and Vmax from that phase is a feature; this is observable auxiliary Vmin RECONSTRUCTION, not forecasting a future unobserved voltage.",
+        "- Voltage observation is non-RPT and available in operation; SOC reference remains charge counting, with past RPT used only in offline scoring.",
         "- Stream RLS has substantially more updates and must NOT be compared as budget-equivalent to four-shot methods.",
         "- PH/CUSUM, voltage threshold and periodic arms may use different update counts; compare both accuracy and count.",
         "- If voltage identification improves but SOC does not, learn a jointly trained voltage reconstruction + SOC representation rather than post-hoc feature subtraction.",
