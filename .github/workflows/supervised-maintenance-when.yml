@@ -1,0 +1,55 @@
+name: Active SOC Reference-Label Maintenance and Cost Benchmark
+
+on:
+  push:
+    branches:
+      - research/active-supervised-maintenance-v1
+  pull_request:
+    branches:
+      - research/strong-gru-voltage-selfsup-20261012
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: active-supervised-maintenance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  label_broker_audit:
+    name: 22 cells, paid mission labels, budgeted WHEN and oracle
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Install analytic stack
+        run: python -m pip install -r requirements.txt
+      - name: Validate causal label-release and exact hindsight oracle
+        run: python -m unittest discover -s tests -p 'test_supervised_maintenance_when.py' -v
+      - name: Run lifelong active supervised label acquisition replay
+        run: python scripts/supervised_maintenance_when.py --output-dir supervised_maintenance_artifacts
+      - name: Publish outcome in Actions summary
+        if: always()
+        run: |
+          if test -s supervised_maintenance_artifacts/report.md; then
+            cat supervised_maintenance_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Save paired physical-cell statistics and label release events
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: supervised-soc-maintenance-when-pilot
+          path: soc_drift_study/supervised_maintenance_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
