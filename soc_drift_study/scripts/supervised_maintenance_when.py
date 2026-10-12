@@ -247,13 +247,14 @@ def predictor_for_events(cell,bank,event_indices):
     return output
 
 
-def oracle_DP(cell,bank,opportunities,budget):
+def oracle_DP(cell,bank,opportunities,budget,cost_per_event_pp=0.0):
     """Exact hindsight MIN cumulative absolute error given a one-curve HOW.
 
     The oracle reads future held-out label scores and chooses at most budget
     events; no deployable policy or online detector has such information.
     """
     n=cell.n
+    if cost_per_event_pp<0:raise ValueError('Costs must be nonnegative')
     nodes=[None]+list(opportunities)
     starts=[0]+[t+1 for t in opportunities]
     err={}
@@ -276,7 +277,7 @@ def oracle_DP(cell,bank,opportunities,budget):
             for i in range(j):
                 prev=F[i,k-1]
                 if not np.isfinite(prev):continue
-                candidate=prev+interval(i,starts[j])
+                candidate=prev+interval(i,starts[j])+cost_per_event_pp*n
                 if candidate<best:
                     best=candidate;winner=paths[(i,k-1)]+(nodes[j],)
             if winner is not None:
@@ -287,7 +288,8 @@ def oracle_DP(cell,bank,opportunities,budget):
             if np.isfinite(F[j,k]):
                 scores.append((F[j,k]+interval(j,n),paths[(j,k)]))
     objective,chosen=min(scores,key=lambda x:x[0])
-    check=np.mean(np.abs(predictor_for_events(cell,bank,list(chosen))-cell.label_broker))*100*cell.n
+    check=(np.mean(np.abs(predictor_for_events(cell,bank,list(chosen))-cell.label_broker))*100*cell.n
+           +cost_per_event_pp*n*len(chosen))
     assert abs(check-objective)<1e-5,(check,objective)
     return list(chosen)
 
@@ -362,7 +364,7 @@ def aggregate(df):
     return paired,pd.DataFrame(summ)
 
 
-def cost_grid(cell_metrics):
+def cost_grid(cell_metrics,cost_optimal_oracles):
     rows=[]
     for cost in COST_PER_EVENT_PP:
         df=cell_metrics.copy()
@@ -374,6 +376,19 @@ def cost_grid(cell_metrics):
             mean_total_cost_pp=("J_pp","mean"),
         )
         g["cost_per_calibration_pp_equivalent"]=cost
+        # True cost-aware hindsight oracle must re-optimize event count/timing
+        # for this price. Reusing error-optimal B4 purchases would overstate
+        # its cost at high prices and is NOT a cost-aware oracle.
+        for budget in BUDGETS:
+            mask=(g.budget.eq(budget)&g.policy.eq("offline_oracle"))
+            oracle=cost_optimal_oracles[
+                cost_optimal_oracles.budget.eq(budget)
+                & cost_optimal_oracles.cost_per_calibration_pp_equivalent.eq(cost)
+            ]
+            if len(oracle):
+                g.loc[mask,"mean_total_cost_pp"]=oracle.J_pp.mean()
+                g.loc[mask,"mean_events"]=oracle.events.mean()
+                g.loc[mask,"mean_loss_pp"]=oracle.MAE_pp.mean()
         rows.append(g)
     return pd.concat(rows,ignore_index=True)
 
@@ -421,7 +436,7 @@ def report(summary,grid,meta):
         "## What this pilot can and cannot establish",
         "- It tests WHEN under a SINGLE predeclared supervised three-point update operation, not a full neural-network retraining or actual dense SOC reference acquisition.",
         "- We need to verify that this update operator improves Frozen on most cells before trying sophisticated timing policies.",
-        "- Offline oracle can optionally refuse all maintenance. Online policies can use less than full budget; read actual counts before attributing efficiency.",
+        "- Offline oracle can optionally refuse all maintenance. COST FRONTIER uses a separate cost-aware oracle that re-optimizes for each price, not the price-zero oracle's event count.",
         "- The planned periodic's perfect knowledge of full-horizon length must not be mistaken for a causal online predictor; use periodic_150 as the strict no-future-horizon alternative.",
         "- This is an exploratory all-cell cohort previously used in other studies, not unseen held-cell final testing.",
         "- Future extensions: matching full dense normal high-rate SOC paths, varying labels per calibration (3/30/300), true field cost, maintenance latency, and corrected strong source GRU.",
@@ -439,6 +454,7 @@ def main():
     if not needed.issubset(raw.columns):raise AssertionError(f"Missing columns {needed-set(raw.columns)}")
     all_results=[];timeline=[];per_calib=[]
     started=time.perf_counter()
+    cost_optimal_oracles=[]
     incomplete_missions=0
     for cid,data in raw.groupby("cell_id",sort=True):
         cell=make_cell(data)
@@ -447,6 +463,19 @@ def main():
         bank=event_models(cell,events)
         assert all(0<=k<cell.n-1 for k in events)
         for budget in BUDGETS:
+            if budget:
+                for price in COST_PER_EVENT_PP:
+                    hindsight=oracle_DP(cell,bank,events,budget,cost_per_event_pp=price)
+                    mae=np.mean(np.abs(
+                        predictor_for_events(cell,bank,hindsight)-cell.label_broker
+                    ))*100
+                    cost_optimal_oracles.append({
+                        "cell_id":cid,"budget":budget,
+                        "cost_per_calibration_pp_equivalent":price,
+                        "events":len(hindsight),"MAE_pp":mae,
+                        "J_pp":mae+price*len(hindsight),
+                        "positions":";".join(map(str,hindsight)),
+                    })
             for policy in POLICIES:
                 seeds=SEEDS if policy=="random" else (SEEDS[0],)
                 for seed in seeds:
@@ -476,13 +505,15 @@ def main():
     assert results.cell_id.nunique()==22
     assert results.maintenance_events.le(results.budget).all()
     paired,summary=aggregate(results)
-    grid=cost_grid(paired)
+    cost_oracle=pd.DataFrame(cost_optimal_oracles)
+    grid=cost_grid(paired,cost_oracle)
     timeline=pd.DataFrame(timeline)
     candidate_table=pd.DataFrame(per_calib)
     results.to_csv(out/"all_cell_policy_seed.csv",index=False)
     paired.to_csv(out/"paired_cell_metrics.csv",index=False)
     summary.to_csv(out/"budget_policy_summary.csv",index=False)
     grid.to_csv(out/"hypothetical_cost_frontier.csv",index=False)
+    cost_oracle.to_csv(out/"cost_aware_offline_oracle_by_cell.csv",index=False)
     timeline.to_csv(out/"calibration_release_timeline.csv",index=False)
     candidate_table.to_csv(out/"counterfactual_candidate_diagnostics_OFFLINE_ONLY.csv",index=False)
     meta={
