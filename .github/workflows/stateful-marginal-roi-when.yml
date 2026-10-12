@@ -1,0 +1,60 @@
+name: Stateful Marginal ROI for Purchased High-rate SOC Reference
+
+on:
+  push:
+    branches: [research/marginal-roi-stateful-when-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stateful-marginal-roi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: 14 DEV source OOF policy selection and 8 label-blind retrospective challenge cells
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run strict future SOC blindness and exact oracle tests
+        run: |
+          python -m unittest discover -s tests -p 'test_stateful_marginal_roi_maintenance.py' -v
+          python -m unittest discover -s tests -p 'test_dense_highrate_reference_maintenance.py' -v
+      - name: Materialize original 3 LFS battery files
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Physical-cell OOF model selection and strictly prospective challenge timing
+        run: |
+          OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/stateful_marginal_roi_maintenance.py \
+            --output-dir stateful_marginal_roi_artifacts
+      - name: Display research audit
+        if: always()
+        run: |
+          if test -s stateful_marginal_roi_artifacts/report.md; then
+            cat stateful_marginal_roi_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stateful-marginal-ROI-source-OOF-and-8-challenge
+          path: soc_drift_study/stateful_marginal_roi_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
