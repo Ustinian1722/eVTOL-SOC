@@ -31,7 +31,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from mission_update_utility import (
-    DATA, SEED, N20, BUDGET, WINDOW, HELD, COOLDOWN,
+    DATA, SEED, N20, BUDGET, WINDOW, HOLDOUT as HELD, COOLDOWN,
     prepare, selected_cell_protocol, fit_and_gate,
 )
 
