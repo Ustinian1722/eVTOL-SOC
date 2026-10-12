@@ -1,0 +1,51 @@
+name: Mission Update Value Gate and Capacity Prior Stress Test
+
+on:
+  push:
+    branches: [research/mission-value-trigger-20261012]
+  pull_request:
+    branches: [research/mission-only-voltage-tta-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: utility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Mission-only prequential utility update
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Test causality, relative charge, proxy-blind updates
+        run: python -m unittest discover -s tests -p 'test_mission_update_utility.py' -v
+      - name: Evaluate 22 cells and predeclared 10 arms
+        run: python scripts/mission_update_utility.py --output-dir mission_utility_artifacts
+      - name: Publish report
+        if: always()
+        run: |
+          if test -s mission_utility_artifacts/report.md; then
+            cat mission_utility_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission-update-utility
+          path: soc_drift_study/mission_utility_artifacts/
+          if-no-files-found: warn
+          retention-days: 30
