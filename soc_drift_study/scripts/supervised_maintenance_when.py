@@ -64,7 +64,8 @@ MAX_BIAS=0.12
 SEED=20261012
 POLICIES=("frozen","periodic_horizon","periodic_150","random",
           "model_disagreement","voltage_residual","cusum_voltage",
-          "risk_combo","offline_oracle")
+          "risk_combo","disagreement_debounce3","voltage_debounce3",
+          "input_novelty_debounce3","offline_oracle")
 
 
 def robust(x):
@@ -108,6 +109,10 @@ class CellData:
     dates:np.ndarray
     phase_rows:int
     incomplete_heldout_missions:int=0
+    encoded_test_features:np.ndarray|None=None
+    labeled_source_features:np.ndarray|None=None
+    novelty_center:float=0.0
+    novelty_scale:float=1.0
 
     @property
     def n(self):return len(self.frozen)
@@ -151,6 +156,20 @@ def make_cell(frame):
     if len(groups)<CANDIDATE_FIRST+MIN_AFTER_EVENT:
         raise AssertionError(f"Too few complete normal missions for {cid}")
     take=lambda key:np.vstack([g[key].to_numpy(dtype=float) for g in groups])
+    # Xue et al. GSx-inspired INPUT NOVELTY: L2 distance from each
+    # operational task phase to already LABELLED comparable source phases.
+    # Source N20 leave-one-out distance calibrates all novelty thresholds.
+    scaler=model.named_steps["standardscaler"]
+    src_features=scaler.transform(first[FEATURES]).astype(float)
+    test_features=np.stack([scaler.transform(g[FEATURES]) for g in groups],axis=0).astype(float)
+    all_dist=[]
+    for i,row in enumerate(src_features):
+        candidates=np.isclose(src_features[:,0],row[0])
+        candidates[i]=False
+        others=src_features[candidates]
+        if len(others):
+            all_dist.append(np.min(np.sqrt(np.mean((others-row)**2,axis=1))))
+    nov0,novS=robust(np.array(all_dist))
     return CellData(
         cell_id=cid, frozen=take("frozen"),
         label_broker=take("SOC_proxy"),
@@ -159,7 +178,9 @@ def make_cell(frame):
         current=take("I_mean_A"),temp=take("Tmean_C"),
         training_disagreement=train_disag,training_vresidual=train_ve,
         dates=np.array([int(g.charge_cycle_index.iloc[0]) for g in groups]),
-        phase_rows=3,incomplete_heldout_missions=removed
+        phase_rows=3,incomplete_heldout_missions=removed,
+        encoded_test_features=test_features,labeled_source_features=src_features,
+        novelty_center=nov0,novelty_scale=novS
     )
 
 
@@ -220,20 +241,41 @@ def online_schedule(cell,opportunities,policy,budget,seed=11):
     zd,zv=public_risks(cell)
     chosen=[]
     h=0.
+    persisted_d=persisted_v=persisted_n=0
+    labeled_pool=cell.labeled_source_features.copy() if cell.labeled_source_features is not None else None
     for t in range(cell.n):
         # Detector state can update on all completed normal missions; it has
         # no access to that mission's withheld SOC labels.
         h=max(0.,h+max(0.,zv[t])-1.0)
+        persisted_d=(persisted_d+1) if zd[t]>3 else 0
+        persisted_v=(persisted_v+1) if zv[t]>3 else 0
+        if labeled_pool is not None and cell.encoded_test_features is not None:
+            novelty=[]
+            for vec in cell.encoded_test_features[t]:
+                matched=labeled_pool[np.isclose(labeled_pool[:,0],vec[0])]
+                if not len(matched):matched=labeled_pool
+                novelty.append(float(np.min(np.sqrt(np.mean((matched-vec)**2,axis=1)))))
+            nscore=(float(np.mean(novelty))-cell.novelty_center)/cell.novelty_scale
+            persisted_n=(persisted_n+1) if nscore>3. else 0
         if t not in cand or len(chosen)>=budget:continue
         if policy=="periodic_150":fire=((t+1)%150==0)
         elif policy=="model_disagreement":fire=zd[t]>3.0
         elif policy=="voltage_residual":fire=zv[t]>3.0
         elif policy=="cusum_voltage":fire=h>18.
         elif policy=="risk_combo":fire=(zd[t]>2.0 and zv[t]>2.0)
+        elif policy=="disagreement_debounce3":fire=persisted_d>=3
+        elif policy=="voltage_debounce3":fire=persisted_v>=3
+        elif policy=="input_novelty_debounce3":fire=persisted_n>=3
         else:raise ValueError(policy)
         if fire:
             chosen.append(t)
+            # Only after PURCHASE can the newest high-rate mission join the
+            # labelled exemplar pool. Sensor feature values themselves were
+            # observed normally, but qualification as a reference costs 1.
+            if labeled_pool is not None and cell.encoded_test_features is not None:
+                labeled_pool=np.concatenate([labeled_pool,cell.encoded_test_features[t]],axis=0)
             h=0.
+            persisted_d=persisted_v=persisted_n=0
     return chosen
 
 
@@ -406,6 +448,7 @@ def report(summary,grid,meta):
         "- N20 source training uses historical SOC_proxy labels; all ONLINE triggers see only V/I/T and the normal QDischarge counter, no SOC_proxy until paying for a reference event.",
         "- After an event, only its 3 SOC_proxy labels are unlocked to the FIXED supervised affine head. One purchased mission = 3 newly exposed target labels.",
         "- The detector thresholds use early N20 training signal statistics, never future error.",
+        "- Xue-2025-inspired additions: 3-mission persistence for disagreement/voltage residual; stream-based same-phase input novelty relative to already labeled N20 references, releasing new reference exemplars ONLY after purchase. These are adapted lightweight proxies, NOT their trained LSTM/GPR models.",
         "- The periodic_horizon baseline is a retrospective PLANNED schedule using known total test horizon, not a streaming drift detector.",
         "- The offline_oracle does *know all future heldout proxy labels* and supplies an UNDEPLOYABLE upper bound on timing with the same calibration action.",
         "- The cost parameter is a hypothetical MAE-pp EQUIVALENT price of one 3-point calibration; no empirical dollars, technician time, or real field labels were measured.",
