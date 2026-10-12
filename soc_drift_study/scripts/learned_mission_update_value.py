@@ -242,7 +242,7 @@ def summarize(metrics:pd.DataFrame):
     return paired,pd.DataFrame(grouped)
 
 
-def report(train:pd.DataFrame,cv:tuple,challenge_stats:dict,agg:pd.DataFrame):
+def report(train:pd.DataFrame,cv:tuple,challenge_stats:dict,agg:pd.DataFrame,challenge_events:pd.DataFrame):
     npos=int(train.beneficial.sum())
     lines=[
         "# Cross-cell learned update-value pilot (NO target RPT online)",
@@ -267,6 +267,30 @@ def report(train:pd.DataFrame,cv:tuple,challenge_stats:dict,agg:pd.DataFrame):
     for x in agg.sort_values("median_MAE_pp").itertuples():
         lines.append(f"| {x.arm} | {x.median_MAE_pp:.3f} | {x.mean_delta_pp:+.3f} [{x.CI_low:+.3f},{x.CI_high:+.3f}] | "
                      f"{x.improved_cells}/{x.cells} | {x.median_attempts:.0f}/{x.median_accepted:.0f} |")
+    lines += [
+        "",
+        "## Observed transfer failure diagnostics (offline-only)",
+        "",
+        f"- DEV candidate positive fraction: {float(train.beneficial.mean()):.3f}; challenge candidate fraction: {challenge_stats.get('beneficial_fraction')}.",
+        "- Challenge per-cell ROC-AUC requires BOTH positive and negative candidate events;",
+        "  cells with one class only are marked NA and are not pooled as independently valid AUCs.",
+        "",
+        "| Challenge cell | Candidate windows | Positive fraction | ROC-AUC |",
+        "|---|---:|---:|---:|",
+    ]
+    for c,g in challenge_events.groupby("cell_id"):
+        y=g.beneficial.to_numpy()
+        auc=float(roc_auc_score(y,g.predicted_benefit_prob)) if len(np.unique(y))>1 else None
+        lines.append(
+            f"| {c} | {len(g)} | {np.mean(y):.3f} | "
+            f"{f'{auc:.3f}' if auc is not None else 'NA'} |"
+        )
+    scales=train[SIGNALS].std().clip(lower=1e-6)
+    shift=((challenge_events[SIGNALS].mean()-train[SIGNALS].mean())/scales).abs().sort_values(ascending=False)
+    lines.append("")
+    lines.append("- Largest DEV-to-challenge standardized feature mean shifts:")
+    for fname,amount in shift.head(5).items():
+        lines.append(f"  - {fname}: {amount:.2f} training SD")
     lines += [
         "",
         "## Interpretation",
@@ -313,7 +337,7 @@ def main():
     paired.to_csv(out/"challenge_policy_by_cell.csv",index=False)
     agg.to_csv(out/"challenge_policy_summary.csv",index=False)
     pd.DataFrame(events).to_csv(out/"challenge_online_events.csv",index=False)
-    (out/"report.md").write_text(report(source,cv,challenge_auc,agg),encoding="utf-8")
+    (out/"report.md").write_text(report(source,cv,challenge_auc,agg,challenge_events),encoding="utf-8")
     (out/"metadata.json").write_text(json.dumps({
         "split":cohorts,
         "only_source_dev_SOC_proxy_for_meta_supervised_training":True,
