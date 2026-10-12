@@ -99,10 +99,15 @@ def inspect(curves,windows,out):
         dtime=np.diff(t); dq=np.diff(q)
         endpoint=float(soc[np.argmax(q)])
         mismatch=100*abs(endpoint-w["expected_end_soc_proxy"])
+        # The dataset logger varies sampling cadence with lifecycle:
+        # early phases ~1 sec, later phases ~10 sec. A minimum of 20 rows
+        # would falsely reject legitimate 7–12-sample takeoff/landing phases.
+        median_dt=float(np.median(dtime)) if len(dtime) else float("nan")
         run_valid=bool(
-            n>=20 and np.isfinite(soc).all()
+            n>=5 and np.isfinite(soc).all()
             and np.isfinite(v).all() and np.isfinite(I).all()
-            and (dtime>0).mean()>.98
+            and len(dtime)>0 and (dtime>0).mean()>.98
+            and median_dt<=30.
             and mismatch<0.55
             and abs(float(np.nanmax(q))-w["expected_q_end_Ah"])<.02
         )
@@ -117,7 +122,8 @@ def inspect(curves,windows,out):
             "negative_Q_step_count":int((dq<-.005).sum()),
             "nonpositive_time_steps":int((dtime<=0).sum()),
             "gaps_over_10s":int((dtime>10).sum()),
-            "median_sampling_s":float(np.median(dtime)) if len(dtime) else float("nan"),
+            "gaps_over_3x_cadence":int((dtime>3*median_dt).sum()) if np.isfinite(median_dt) else 0,
+            "median_sampling_s":median_dt,
             "mean_abs_current_A":float(np.nanmean(np.abs(I))/1000),
             "Vmin_V":float(np.nanmin(v)),"Vmax_V":float(np.nanmax(v)),
             "Tmin_C":float(np.nanmin(temp)),"Tmax_C":float(np.nanmax(temp)),
@@ -164,7 +170,8 @@ def main():
         f"- Physical cell: {cell_id}; streaming rows read: {meta['raw_total_rows']:,}; {complete} derived complete 3-phase missions.",
         f"- Selected 3 early/middle/late missions ({len(win)} high-rate phase windows); {summary.phase_valid.sum()}/{len(win)} windows match phase-end Coulomb SOC proxy.",
         f"- Raw time nonpositive steps: {meta['nonpositive_dt_count']}; backward chunk times: {meta['interchunk_backward_time_count']}.",
-        "- Full measured V/I/T and cumulative discharged ampere-hours exist at each raw sample. If window joins and sampling continuity pass, FULL **SOC_proxy curve** reconstruction is feasible.",
+        "- Raw logger sampling cadence can change from ~1s early to ~10s in later life; quality criteria are resolution-aware. This is a *samplewise* complete-available-measurement curve, NOT uniformly 1 Hz across the full life.",
+        "- Full measured V/I/T and cumulative discharged ampere-hours exist at each raw sample. If window joins and sampling continuity pass, a samplewise **SOC_proxy curve** reconstruction is feasible.",
         "- Such a curve is STILL NOT an independently measured true-SOC label: it needs a historical prior-RPT capacity anchor and a valid initial SOC/full-charge condition.",
         "- A field drone maintaining its BMS must obtain independent/credible SOC reference with a cost that is not present in this dataset. Do not silently call prior RPT denominator free.",
         "",
