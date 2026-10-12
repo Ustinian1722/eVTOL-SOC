@@ -65,9 +65,8 @@ def source_models(dev,src):
                 model.fit(a[names],a[label])
                 pp=model.predict(b[names])
                 bb=b.assign(_pred=pp)
-                err.extend(bb.groupby("cell_id").apply(
-                    lambda d:np.mean((d._pred-d[label])**2),
-                    include_groups=False).to_list())
+                for _,d in bb.groupby("cell_id"):
+                    err.append(float(np.mean((d._pred-d[label])**2)))
                 pred.extend(pp);truth.extend(b[label])
             rank=spearmanr(pred,truth).statistic if np.std(pred)>1e-10 else 0.
             result.append({"target":label,"regressor":name,
