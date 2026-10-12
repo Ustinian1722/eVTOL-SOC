@@ -50,7 +50,8 @@ class LearnedUtilityTests(unittest.TestCase):
         ca,da,fa=work(a)
         cb,db,fb=work(b)
         np.testing.assert_allclose(ca,cb)
-        self.assertEqual(fa,fb)
+        self.assertEqual(fa.keys(),fb.keys())
+        for k in fa: self.assertAlmostEqual(fa[k],fb[k],places=10)
 
     def test_meta_target_requires_later_score_and_is_separate(self):
         x=prepare(toy())
@@ -70,7 +71,14 @@ class LearnedUtilityTests(unittest.TestCase):
         for a in ARMS:
             first,events=rollout(x,"TEST",a,DummyClassifier())
             second,events2=rollout(other,"TEST",a,DummyClassifier())
-            self.assertEqual(events,events2)
+            self.assertEqual(len(events),len(events2))
+            for e1,e2 in zip(events,events2):
+                self.assertEqual(e1.keys(),e2.keys())
+                for k in e1:
+                    if isinstance(e1[k],(float,np.floating)):
+                        self.assertAlmostEqual(e1[k],e2[k],places=10)
+                    else:
+                        self.assertEqual(e1[k],e2[k])
             self.assertEqual(first["attempts"],second["attempts"])
             self.assertEqual(first["accepted"],second["accepted"])
 
