@@ -18,7 +18,7 @@ from strong_gru_voltage_selfsup import (
 
 
 class DummyGRU:
-    def predict(self,x,batch_size=256,verbose=0):
+    def __call__(self,x,training=False):
         y=np.clip(.5 + .04*x[:,:,VOLTAGE_IDX],0,1)
         return y[:,:,None]
 
