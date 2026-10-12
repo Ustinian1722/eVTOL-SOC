@@ -1,0 +1,102 @@
+name: Active Calibrations ROI and High-rate Full Curve Data Audit
+
+on:
+  push:
+    branches:
+      - research/active-maintenance-roi-and-curves-20261012
+  pull_request:
+    branches:
+      - research/active-supervised-maintenance-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: active-roi-curves-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  learned_when:
+    name: 14 source cells ROI model -> 8 retrospective challenge cells
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify future-label-blind causal decision path
+        run: python -m unittest discover -s tests -p 'test_learned_supervised_maintenance_roi.py' -v
+      - name: Run physical-cell-blocked learned reference ROI replay
+        run: python scripts/learned_supervised_maintenance_roi.py --output-dir learned_roi_maintenance_artifacts
+      - name: Inventory full normal-flight raw signal density across all 22 cells
+        run: python scripts/all_cells_reference_curve_density.py --output-dir curve_density_artifacts
+      - name: Report metrics
+        if: always()
+        run: |
+          if test -s learned_roi_maintenance_artifacts/report.md; then
+            cat learned_roi_maintenance_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if test -s curve_density_artifacts/report.md; then
+            printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            cat curve_density_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: supervised-ROI-when-cell-block
+          path: |
+            soc_drift_study/learned_roi_maintenance_artifacts/
+            soc_drift_study/curve_density_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
+
+  raw_curves:
+    name: Raw high-power flight full SOC-proxy curve feasibility, VAH01
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Materialize VAH01 only, never modify original CSV
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv" --exclude=""
+          test "$(wc -c < VAH01.csv)" -gt 1000000
+      - name: Stream and audit early/middle/late normal high-rate curves
+        run: python scripts/audit_full_highrate_reference_curves.py --raw-file ../VAH01.csv --output-dir full_highrate_curve_artifacts
+      - name: Report data feasibility
+        if: always()
+        run: |
+          if test -s full_highrate_curve_artifacts/report.md; then
+            cat full_highrate_curve_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: highrate-full-SOCproxy-curve-feasibility
+          path: soc_drift_study/full_highrate_curve_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
