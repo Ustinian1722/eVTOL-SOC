@@ -107,6 +107,7 @@ class CellData:
     training_vresidual:np.ndarray
     dates:np.ndarray
     phase_rows:int
+    incomplete_heldout_missions:int=0
 
     @property
     def n(self):return len(self.frozen)
@@ -138,10 +139,17 @@ def make_cell(frame):
     test["nominal"]=test["SOC_nominal_3Ah"]
     # ONLY the label broker/scoring constructor obtains this target column;
     # detectors never receive CellData.label_broker.
-    groups=[g for _,g in test.groupby("charge_cycle_index",sort=True)]
-    sizes={len(g) for g in groups}
-    if sizes!={3}:  # keep matched 3-phase mission opportunities consistent
-        raise AssertionError(f"Unexpected mission phase size in {cid}: {sizes}")
+    raw_groups=[g for _,g in test.groupby("charge_cycle_index",sort=True)]
+    # Exactly three normal task phases give every hypothetical purchase the
+    # SAME number of high-rate SOC labels. Source dataset has a handful of
+    # incomplete missions; make their exclusion explicit in metadata/report.
+    groups=[g for g in raw_groups if len(g)==3]
+    removed=len(raw_groups)-len(groups)
+    if removed:
+        print(f"DATA_QUALITY: {cid} excludes {removed} incomplete heldout mission(s); "
+              f"3 phases per calibration opportunity are mandatory",flush=True)
+    if len(groups)<CANDIDATE_FIRST+MIN_AFTER_EVENT:
+        raise AssertionError(f"Too few complete normal missions for {cid}")
     take=lambda key:np.vstack([g[key].to_numpy(dtype=float) for g in groups])
     return CellData(
         cell_id=cid, frozen=take("frozen"),
@@ -151,7 +159,7 @@ def make_cell(frame):
         current=take("I_mean_A"),temp=take("Tmean_C"),
         training_disagreement=train_disag,training_vresidual=train_ve,
         dates=np.array([int(g.charge_cycle_index.iloc[0]) for g in groups]),
-        phase_rows=3
+        phase_rows=3,incomplete_heldout_missions=removed
     )
 
 
@@ -377,6 +385,7 @@ def report(summary,grid,meta):
         "## Critical interpretation",
         "",
         "- This is a VTC6 laboratory eVTOL SINGLE-CELL and three-phase-END pilot, not agricultural drone field deployment.",
+        "- Non-three-phase incomplete missions are excluded rather than silently padded; exact count appears in metadata.",
         "- The 'bought SOC curve' presently means one normal high-rate mission with THREE phase-end SOC_proxy points. Full dense SOC curves were NOT bought or replayed.",
         "- SOC_proxy is Coulomb-counted with the previous RPT candidate capacity as denominator, not independent true SOC; prior RPT curves are NEVER used for the high-rate maintenance calibration.",
         "- N20 source training uses historical SOC_proxy labels; all ONLINE triggers see only V/I/T and the normal QDischarge counter, no SOC_proxy until paying for a reference event.",
@@ -430,8 +439,10 @@ def main():
     if not needed.issubset(raw.columns):raise AssertionError(f"Missing columns {needed-set(raw.columns)}")
     all_results=[];timeline=[];per_calib=[]
     started=time.perf_counter()
+    incomplete_missions=0
     for cid,data in raw.groupby("cell_id",sort=True):
         cell=make_cell(data)
+        incomplete_missions+=cell.incomplete_heldout_missions
         events=scheduled_opportunities(cell)
         bank=event_models(cell,events)
         assert all(0<=k<cell.n-1 for k in events)
@@ -492,6 +503,7 @@ def main():
         "selection_does_not_use_test_SOC":True,
         "no_online_reference_SOC_without_purchase":True,
         "physical_cells":22,
+        "incomplete_heldout_missions_excluded":incomplete_missions,
         "elapsed_s":time.perf_counter()-started,
         "research_scope":"pilot only; no actual calibrated full high-rate SOC curve or measured maintenance price",
     }
