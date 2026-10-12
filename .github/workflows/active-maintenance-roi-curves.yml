@@ -39,17 +39,25 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_learned_supervised_maintenance_roi.py' -v
       - name: Run physical-cell-blocked learned reference ROI replay
         run: python scripts/learned_supervised_maintenance_roi.py --output-dir learned_roi_maintenance_artifacts
+      - name: Inventory full normal-flight raw signal density across all 22 cells
+        run: python scripts/all_cells_reference_curve_density.py --output-dir curve_density_artifacts
       - name: Report metrics
         if: always()
         run: |
           if test -s learned_roi_maintenance_artifacts/report.md; then
             cat learned_roi_maintenance_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
           fi
+          if test -s curve_density_artifacts/report.md; then
+            printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            cat curve_density_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: supervised-ROI-when-cell-block
-          path: soc_drift_study/learned_roi_maintenance_artifacts/
+          path: |
+            soc_drift_study/learned_roi_maintenance_artifacts/
+            soc_drift_study/curve_density_artifacts/
           retention-days: 30
           if-no-files-found: warn
 
