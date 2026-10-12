@@ -1,0 +1,60 @@
+name: Deferral Regret Conditional High-Rate SOC Maintenance
+
+on:
+  push:
+    branches: [research/deferral-regret-aware-when-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deferral-regret-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Source-only buy-now or wait-25 OOF, eight-cell retrospective replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check pre-purchase SOC blindness and label-release timing
+        run: |
+          python -m unittest discover -s tests -p 'test_deferral_regret_when.py' -v
+          python -m unittest discover -s tests -p 'test_stateful_marginal_roi_maintenance.py' -v
+          python -m unittest discover -s tests -p 'test_dense_highrate_reference_maintenance.py' -v
+      - name: Materialize original recorded battery files from Git LFS
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Fit source-only marginal and wait-regret, then run challenge replay
+        run: |
+          OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/deferral_regret_when.py --out deferral_regret_artifacts
+      - name: Display scientific report
+        if: always()
+        run: |
+          if test -s deferral_regret_artifacts/report.md; then
+            cat deferral_regret_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 14source-8challenge-deferral-regret-when
+          path: soc_drift_study/deferral_regret_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
