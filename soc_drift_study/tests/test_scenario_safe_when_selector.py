@@ -48,6 +48,10 @@ class SafeScenarioTests(unittest.TestCase):
         target=toy_cell(cid="TOTALLY_NEW",n=210)
         detail,summary=evaluate_challenge({"TOTALLY_NEW":target},model,selected)
         self.assertEqual(len(summary),8)
+        self.assertEqual(set(summary.chosen),set(selected.source_chosen))
+        for row in summary.itertuples():
+            self.assertEqual(row.chosen_type,
+                             "active" if row.chosen in ACTIVE else "periodic_or_none")
         self.assertTrue(detail.groupby(["cell_id","budget","price"]).selected.sum().eq(1).all())
         self.assertEqual(set(detail.cell_id),{"TOTALLY_NEW"})
 
