@@ -65,7 +65,7 @@ TEST_POLICIES=("frozen","periodic150","periodic200","periodic250",
 FIELDS=(
     "seen_missions","since_last_reference","references_acquired",
     "prior_head_a","prior_head_b","last_reference_fit_MAE_pp",
-    "last_reference_raw_points","last_reference_signed_error_pp",
+    "last_reference_signed_error_pp","last_reference_raw_points",
     "cur_abs_calibrated_vs_nominal_pp","last10_abs_calibrated_vs_nominal_pp",
     "last30_abs_calibrated_vs_nominal_pp","last30_trend_disagreement_pp",
     "cur_abs_frozen_vs_nominal_pp",
