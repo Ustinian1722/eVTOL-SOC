@@ -38,7 +38,7 @@ MIN_FUTURE=20
 GRID_START=24
 GRID_STRIDE=25
 BUDGETS=(0,2,4)
-DENSITIES=("endpoints3","uniform16","native_all")
+DENSITIES=("endpoints3","uniform16","native_all","native_phase_balanced")
 POLICIES=("frozen","periodic_planned","periodic150","random",
           "disagreement3","voltage3","joint3","offline_oracle")
 COSTS=(0.0,0.1,0.3)
@@ -204,7 +204,7 @@ def make_missions(windows,allocated):
 
 
 def select_reference_rows(mission,density):
-    if density=="native_all":return np.arange(mission.n)
+    if density in ("native_all","native_phase_balanced"):return np.arange(mission.n)
     if density=="uniform16":return np.unique(np.linspace(0,mission.n-1,
                                             min(16,mission.n),dtype=int))
     if density=="endpoints3":
@@ -212,7 +212,7 @@ def select_reference_rows(mission,density):
     raise ValueError(density)
 
 
-def fit_calibration(base,label):
+def fit_calibration(base,label,weights=None):
     """Same bounded/regularized HOW for all WHEN arms and all densities.
     Normalize per-curve objective so native 1Hz vs 10s cadence does not
     multiply effective supervision merely because the logger ran faster.
@@ -221,8 +221,14 @@ def fit_calibration(base,label):
     if len(x)<3:raise ValueError("Not enough normal-task reference samples")
     A=np.c_[x,np.ones(len(x))]
     prior=np.diag([.10,.02])
-    theta=np.linalg.solve(A.T@A/len(x)+prior,
-                  A.T@y/len(x)+prior@np.array([1.,0.]))
+    # A WHOLE-CURVE stage-balanced calibrator gives Ns4/Ns5/Ns6 equal
+    # effective total weight, regardless of native 1s vs 10s sampling.
+    # Without weights, this is ordinary per-raw-sample weighting.
+    w=np.ones(len(x),dtype=float) if weights is None else np.asarray(weights,dtype=float)
+    if np.any(w<0) or float(w.sum())<=0:raise ValueError("Invalid calibration weights")
+    w=w/w.sum()
+    theta=np.linalg.solve(A.T@(A*w[:,None])+prior,
+                  A.T@(y*w)+prior@np.array([1.,0.]))
     return (float(np.clip(theta[0],.70,1.30)),
             float(np.clip(theta[1],-.15,.15)))
 
@@ -310,7 +316,14 @@ def build_broker(test,options,density):
     for e in options:
         m=test[e]
         ix=select_reference_rows(m,density)
-        pars=fit_calibration(m.predicted[ix],m.y[ix])
+        weight=None
+        if density=="native_phase_balanced":
+            weight=np.zeros(len(ix),dtype=float)
+            for stage in (4,5,6):
+                positions=m.ns[ix]==stage
+                if not positions.any():raise ValueError("Missing phase in full reference")
+                weight[positions]=1./(3*positions.sum())
+        pars=fit_calibration(m.predicted[ix],m.y[ix],weights=weight)
         bank[e]=(pars,int(len(ix)))
         losses[e]=per_mission_errors(test,pars)
     return bank,losses
@@ -446,7 +459,8 @@ def report(results,manifest):
         "- Each purchased reference is one complete recorded normal high-rate Ns4/5/6 mission. This is a HYPOTHETICAL historically escrowed Coulomb-count SOC_proxy curve, not independent true SOC/field labeling.",
         "- All methods have the same fixed initial same-cell N20 Ridge trained from normal mission V/I/T and NOMINAL 3Ah coulomb count, not reference test waveforms.",
         "- All WHEN detectors see only normal measured signals/frozen predictions; the bought labels enter the fixed regularized two-parameter affine calibration ONLY after event prediction.",
-        "- Three point, sixteen native sample, and all native sample maintenance use the SAME curve, with varying label subsample number. Native sample count varies over life due to 1->10s downsampling.",
+        "- Three points, sixteen native samples, all raw samples and STAGE-BALANCED full raw samples use the SAME purchased normal flight. Phase-balanced Ns4/5/6 samples each receive exactly one-third effective loss weight despite logger density changes.",
+        "- Native sample count varies over life due to logger 1->10s decimation; all-native-samples is not necessarily the best phase coverage objective.",
         "- Cost λ per EVENT is hypothetical MAE-pp-equivalent, not actual field cost. Labels bought is also reported. The Oracle uses future hidden labels deliberately and is not deployable.",
         "- All cells selected for pilot were previously explored and are NOT new external test cells.",
         "",
