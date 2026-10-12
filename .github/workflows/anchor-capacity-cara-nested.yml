@@ -1,0 +1,90 @@
+name: Reference-Capacity Integrity and CARA-style Cost Staleness
+
+on:
+  push:
+    branches: [research/reference-anchor-cara-stress-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anchor-cara-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nested_fold:
+    name: Reference label bias and cost-staleness fold ${{ matrix.fold }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        fold: [0, 1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Original causal, nested split and anchor tests
+        run: |
+          python -m unittest discover -s tests -p 'test_anchor_noise_cara_nested.py' -v
+          python -m unittest discover -s tests -p 'test_nested_cell_when.py' -v
+          python -m unittest discover -s tests -p 'test_deferral_regret_when.py' -v
+      - name: Materialize original LFS source batteries
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Re-evaluate online active policy with perturbed paid labels
+        run: |
+          OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/anchor_noise_cara_nested.py \
+            --outer-fold ${{ matrix.fold }} --out anchor_cara_fold
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: anchor-cara-fold-${{ matrix.fold }}
+          path: soc_drift_study/anchor_cara_fold/
+          retention-days: 30
+          if-no-files-found: warn
+
+  aggregate:
+    needs: nested_fold
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: anchor-cara-fold-*
+          path: soc_drift_study/anchor_cara_all/
+      - name: Verify unique 22 physical cells and aggregate noise and latency
+        run: |
+          python -u scripts/aggregate_anchor_cara_nested.py \
+            --fold-dirs anchor_cara_all/anchor-cara-fold-0 anchor_cara_all/anchor-cara-fold-1 \
+                        anchor_cara_all/anchor-cara-fold-2 anchor_cara_all/anchor-cara-fold-3 \
+                        anchor_cara_all/anchor-cara-fold-4 --out anchor_cara_22cell_summary
+      - run: cat anchor_cara_22cell_summary/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: anchor-cara-all22-paired-robustness
+          path: soc_drift_study/anchor_cara_22cell_summary/
+          retention-days: 30
+          if-no-files-found: warn
