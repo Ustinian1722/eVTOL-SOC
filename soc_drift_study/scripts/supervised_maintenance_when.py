@@ -331,8 +331,8 @@ def aggregate(df):
         events=("maintenance_events","mean"),
         qpoints=("labeled_phase_end_points","mean"),
     )
-    base=cell[cell.policy.eq("frozen")][["cell_id","MAE_pp"]].rename(columns={"MAE_pp":"frozen_mae"})
-    paired=cell.merge(base,on="cell_id",how="left",validate="many_to_one")
+    base=cell[cell.policy.eq("frozen")][["cell_id","budget","MAE_pp"]].rename(columns={"MAE_pp":"frozen_mae"})
+    paired=cell.merge(base,on=["cell_id","budget"],how="left",validate="many_to_one")
     paired["delta_frozen_pp"]=paired.MAE_pp-paired.frozen_mae
     periodic=cell[cell.policy.eq("periodic_horizon")][["cell_id","budget","MAE_pp"]].rename(columns={"MAE_pp":"periodic_mae"})
     paired=paired.merge(periodic,on=["cell_id","budget"],how="left",validate="many_to_one")
