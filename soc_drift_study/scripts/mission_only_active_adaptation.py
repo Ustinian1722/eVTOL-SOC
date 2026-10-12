@@ -409,6 +409,37 @@ def _report(summary:pd.DataFrame,metric:pd.DataFrame) -> str:
             )
         lines +=[""]
     lines += [
+        "## Strict B4-matched WHEN comparisons (same physics HOW)",
+        "",
+        "Only cells with four *accepted* updates for both periodic and the trigger",
+        "are compared; active minus periodic SOC_proxy MAE and cell-bootstrap CI.",
+        "",
+        "| Training labels | Trigger | Matched cells | Mean delta to periodic (pp) | 95% paired CI (pp) | Better cells |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for track, g in metric.groupby("train_label_track"):
+        g=g[g.accepted_updates.eq(BUDGET)].copy()
+        base=g[g.arm.eq("periodic_physics")].set_index("cell_id")
+        for policy in [
+            "voltage_physics","ph_voltage_physics",
+            "cusum_voltage_physics","disagreement_physics",
+            "joint_physics","random_physics",
+        ]:
+            alt=g[g.arm.eq(policy)].set_index("cell_id")
+            common=base.index.intersection(alt.index)
+            if len(common)<5: continue
+            delta=(
+                alt.loc[common,"proxy_MAE_pp"] -
+                base.loc[common,"proxy_MAE_pp"]
+            ).to_numpy()
+            rng=np.random.default_rng(SEED)
+            draws=rng.choice(delta,size=(5000,len(delta)),replace=True).mean(axis=1)
+            lo,hi=np.quantile(draws,[.025,.975])
+            lines.append(
+                f"| {track} | {policy} | {len(delta)} | {delta.mean():+.3f} | "
+                f"[{lo:+.3f},{hi:+.3f}] | {(delta<0).sum()}/{len(delta)} |"
+            )
+    lines += [
         "## Interpretation guardrails",
         "- This is an exploratory fixed-method sweep, not held-out model selection: do not crown the smallest test MAE as an independently validated novel method.",
         "- Physics residual constraints rely on *nominal* capacity and may themselves be misspecified as the cell ages.",
