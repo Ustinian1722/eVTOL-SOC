@@ -9,6 +9,7 @@
 - [01 数据审计](reports/01_数据审计.md) · [02 SOC 标签、Ridge 与 GRU 基线](reports/02_SOC标签与基线.md) · [03 生命周期漂移](reports/03_生命周期漂移分析.md)
 - [04 漂移检测](reports/04_漂移检测实验.md) · [05 主动维护](reports/05_主动维护实验.md) · [06 更新与成本](reports/06_模型更新与成本分析.md)
 - [07 完整结果](reports/07_完整实验结果.md) · [08 硕士论文框架](reports/08_硕士论文研究框架.md) · [09 最终决策](reports/09_最终研究决策.md)
+- [10 RPT 更新负迁移及支持域审计](reports/10_RPT更新迁移诊断.md)：独立 GitHub Actions 复核 22 电芯 B=4 更新、迁移失效、收缩与门控，所有误差仍是 SOC_proxy。
 
 ## 环境与复现
 
