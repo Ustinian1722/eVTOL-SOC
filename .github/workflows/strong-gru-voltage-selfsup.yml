@@ -1,0 +1,63 @@
+name: Strong GRU Self-Supervised Flight Voltage Adaptation
+
+on:
+  push:
+    branches: [research/strong-gru-voltage-selfsup-20261012]
+  pull_request:
+    branches: [research/gru-boundary-audit-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strong-gru-voltage-ttt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    name: Freeze corrected GRU and audit voltage-only mission adapters
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements-sequence.txt
+      - name: Scientific environment
+        run: python -m pip install -r requirements-sequence.txt
+      - name: Prequential voltage/update separation synthetic tests
+        run: python -m unittest discover -s tests -p 'test_strong_gru_voltage_selfsup.py' -v
+      - name: Rebuild same cell-boundary-safe source GRU
+        run: python scripts/retrain_gru_boundary_safe.py --output-dir boundary_safe_artifacts
+      - name: Evaluate matched frozen vs online voltage correction
+        run: |
+          python scripts/strong_gru_voltage_selfsup.py \
+            --checkpoint-dir boundary_safe_artifacts/models \
+            --corrected-predictions boundary_safe_artifacts/boundary_safe_gru_predictions.csv \
+            --output-dir strong_gru_voltage_artifacts
+      - name: Summarize
+        if: always()
+        run: |
+          for f in boundary_safe_artifacts/report.md strong_gru_voltage_artifacts/report.md; do
+            if test -s "$f"; then
+              cat "$f" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: strong-gru-flight-voltage-selfsup
+          path: |
+            soc_drift_study/boundary_safe_artifacts/
+            soc_drift_study/strong_gru_voltage_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
