@@ -38,6 +38,18 @@ class DenseReferenceWhenTests(unittest.TestCase):
         self.assertGreaterEqual(a,.7);self.assertLessEqual(a,1.3)
         self.assertGreaterEqual(b,-.15);self.assertLessEqual(b,.15)
 
+    def test_stage_balanced_curve_preserves_equal_phase_information(self):
+        # When values are constant within each phase, three phase endpoints
+        # and a phase-balanced full sampled curve must estimate same head.
+        p=np.repeat([.89,.59,.29],[6,60,12])
+        y=np.repeat([.86,.54,.25],[6,60,12])
+        w=np.repeat([1/18,1/180,1/36],[6,60,12])
+        a,b=fit_calibration(p,y,weights=w)
+        ac,bc=fit_calibration(np.array([.89,.59,.29]),
+                              np.array([.86,.54,.25]))
+        self.assertAlmostEqual(a,ac,places=11)
+        self.assertAlmostEqual(b,bc,places=11)
+
     def test_when_is_label_blind(self):
         n=175
         sensors={"disagreement_z":np.r_[np.zeros(49),np.full(n-49,5.)],
