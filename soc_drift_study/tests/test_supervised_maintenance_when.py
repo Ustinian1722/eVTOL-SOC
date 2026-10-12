@@ -74,6 +74,15 @@ class SupervisedMaintenanceTests(unittest.TestCase):
         self.assertAlmostEqual(loss(oracle),true_best,places=10)
         self.assertLessEqual(len(oracle),2)
 
+    def test_cost_aware_oracle_refuses_expensive_acquisitions(self):
+        cell=toy_cell()
+        candidates=scheduled_opportunities(cell)
+        bank=event_models(cell,candidates)
+        selected=oracle_DP(cell,bank,candidates,4,cost_per_event_pp=10.)
+        self.assertEqual(selected,[])
+        selected_zero=oracle_DP(cell,bank,candidates,4,cost_per_event_pp=0.)
+        self.assertLessEqual(len(selected_zero),4)
+
     def test_cost_budget_never_overdrawn(self):
         cell=toy_cell()
         opp=scheduled_opportunities(cell)
