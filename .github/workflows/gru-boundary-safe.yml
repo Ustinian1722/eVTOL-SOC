@@ -1,0 +1,61 @@
+name: GRU Source Cell Boundaries and RPT-Free Adapter Recheck
+
+on:
+  push:
+    branches: [research/gru-boundary-audit-20261012]
+  pull_request:
+    branches: [research/learned-update-value-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gru-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  correct:
+    name: Retrain 5-fold 3-seed cell-local GRU; test online physics adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements-sequence.txt
+      - name: Install original source-GRU stack
+        run: python -m pip install -r requirements-sequence.txt
+      - name: Verify no cross-cell source chunks
+        run: python -m unittest discover -s tests -p 'test_gru_boundary_safe.py' -v
+      - name: Retrain source GRU on cell-local 12-step sequences
+        run: python scripts/retrain_gru_boundary_safe.py --output-dir boundary_safe_artifacts
+      - name: Validate RPT-free adapter logic
+        run: python -m unittest discover -s tests -p 'test_strong_gru_mission_adapter.py' -v
+      - name: Re-evaluate mission-only scalar adaptation on boundary-safe GRU
+        run: python scripts/strong_gru_mission_adapter.py --prediction-file boundary_safe_artifacts/boundary_safe_gru_predictions.csv --output-dir strong_gru_corrected_artifacts
+      - name: Summarize both corrected experiments
+        if: always()
+        run: |
+          for f in boundary_safe_artifacts/report.md strong_gru_corrected_artifacts/report.md; do
+            if test -s "$f"; then
+              cat "$f" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: boundary-safe-gru-and-online-adapter
+          path: |
+            soc_drift_study/boundary_safe_artifacts/
+            soc_drift_study/strong_gru_corrected_artifacts/
+          if-no-files-found: warn
+          retention-days: 30
