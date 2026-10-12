@@ -132,7 +132,7 @@ def safe_relative_update(
         weight = np.r_[np.full(len(y_source), 2.0), np.full(len(dy), 6.0)]
         candidate = ridge_theta(design, target, weight, frozen, anchor=15.0)
     elif kind == "pseudo":
-        pseudo_z = np.concatenate([v["Z"][1:] for v in fit_buffer if len(v["dy"])], axis=0)
+        pseudo_z = np.concatenate([v["Z"][0] + v["dZ"] for v in fit_buffer if len(v["dy"])], axis=0)
         pseudo_y = np.concatenate([
             np.clip((np.r_[1.0, v["Z"][0]] @ frozen) + v["dy"], 0, 1)
             for v in fit_buffer if len(v["dy"])
@@ -254,6 +254,7 @@ def replay_cell(cell: pd.DataFrame, target_track: str, arm: tuple[str,str,str]) 
     attempts = accepted = rejected = 0
     buffer = deque(maxlen=WINDOW)
     z_window = deque(maxlen=WINDOW)
+    norm_offset = None  # updated only after an accepted mission-only event
     predictions = []
     rng = np.random.default_rng(SEED + sum(ord(c) for c in str(cell.cell_id.iloc[0])))
     task_total = 0
@@ -263,11 +264,8 @@ def replay_cell(cell: pd.DataFrame, target_track: str, arm: tuple[str,str,str]) 
         Z = Zfull[:, 1:]
         q = g["QDischarge_end_Ah"].to_numpy(dtype=float)
         # Feature normalization uses *past* completed missions only.
-        if kind == "norm" and len(z_window) >= MIN_WINDOW:
-            source_mean = source[:,1:].mean(axis=0)
-            stream_mean = np.concatenate(list(z_window)).mean(axis=0)
-            shifted = Z - 0.15 * np.clip(stream_mean - source_mean, -1.0, 1.0)
-            current_prediction = np.clip(theta[0] + shifted @ theta[1:], 0, 1)
+        if kind == "norm" and norm_offset is not None:
+            current_prediction = np.clip(theta[0] + (Z - norm_offset) @ theta[1:], 0, 1)
         else:
             current_prediction = np.clip(Zfull @ theta, 0, 1)
         predictions.append({
@@ -305,7 +303,10 @@ def replay_cell(cell: pd.DataFrame, target_track: str, arm: tuple[str,str,str]) 
             continue
         attempts += 1
         if kind == "norm":
-            accepted += 1  # statistic path uses z_window, not new SOC weights
+            source_mean = source[:,1:].mean(axis=0)
+            stream_mean = np.concatenate(list(z_window)).mean(axis=0)
+            norm_offset = 0.15 * np.clip(stream_mean - source_mean, -1.0, 1.0)
+            accepted += 1  # only future missions see frozen offset
             reason = "norm_statistics_updated"
         else:
             theta_new, ok, reason = safe_relative_update(
