@@ -269,7 +269,7 @@ def summarize(rows:pd.DataFrame)->tuple[pd.DataFrame,pd.DataFrame]:
     return joined,agg
 
 
-def report(agg:pd.DataFrame)->str:
+def report(agg:pd.DataFrame,by_cell:pd.DataFrame)->str:
     lines=[
         "# Mission-only online voltage-model identification and SOC normalization",
         "",
@@ -310,6 +310,34 @@ def report(agg:pd.DataFrame)->str:
             f"{x.delta_soc_pp:+.3f} [{x.soc_ci_lo:+.3f},{x.soc_ci_hi:+.3f}] | "
             f"{x.delta_voltage_mV:+.2f} [{x.voltage_ci_lo:+.2f},{x.voltage_ci_hi:+.2f}] |"
         )
+    lines += [
+        "## Online trigger versus fixed periodic (same How and nominal B=4)",
+        "",
+        "These comparisons condition on *exactly matched four accepted updates* per physical cell;",
+        "fewer valid cells are evaluated if either policy does not complete four.",
+        "Per-cell bootstrap intervals compare the *triggering policy minus periodic*.",
+        "",
+        "| N20 SOC labels | Trigger | Matched cells | Mean delta to periodic (pp) | 95% paired CI (pp) | Better cells |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for track,g in by_cell[
+        by_cell.soc_voltage_normalization_strength.eq(.5)
+    ].groupby("track"):
+        base=g[(g.arm=="periodic_replay")&(g.accepted.eq(B))].set_index("cell_id")
+        for alt in ["threshold_replay","ph_replay","cusum_replay","guarded_replay"]:
+            sub=g[(g.arm==alt)&(g.accepted.eq(B))].set_index("cell_id")
+            common=base.index.intersection(sub.index)
+            if len(common)<5: continue
+            diff=(
+                sub.loc[common,"SOC_proxy_MAE_pp"]-base.loc[common,"SOC_proxy_MAE_pp"]
+            ).to_numpy()
+            rng=np.random.default_rng(SEED)
+            draws=rng.choice(diff,size=(5000,len(diff)),replace=True).mean(axis=1)
+            lo,hi=np.quantile(draws,[.025,.975])
+            lines.append(
+                f"| {track} | {alt} | {len(diff)} | {diff.mean():+.3f} | "
+                f"[{lo:+.3f},{hi:+.3f}] | {(diff<0).sum()}/{len(diff)} |"
+            )
     lines+= [
         "## Interpretation",
         "- An improved voltage model need not improve SOC: correcting a Vmin input to its early-regime reference may delete useful aging information.",
@@ -343,7 +371,7 @@ def main():
     percell,summary=summarize(frame)
     percell.to_csv(out/"online_voltage_by_cell.csv",index=False)
     summary.to_csv(out/"online_voltage_summary.csv",index=False)
-    summary_text=report(summary)
+    summary_text=report(summary,percell)
     (out/"report.md").write_text(summary_text,encoding="utf-8")
     (out/"metadata.json").write_text(json.dumps({
         "no_RPT_online":True,
