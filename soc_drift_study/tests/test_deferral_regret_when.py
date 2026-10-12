@@ -49,8 +49,8 @@ class DeferralTests(unittest.TestCase):
         # Pre-first-purchase trace cannot change under hidden label
         # perturbation. Later records MAY use legitimately bought SOC.
         first=a[0]
-        self.assertEqual([x for x in events if x["event_idx"]<=first],
-                         [x for x in altered_events if x["event_idx"]<=first])
+        self.assertEqual([x for x in events if x["t"]<=first],
+                         [x for x in altered_events if x["t"]<=first])
         self.assertTrue(all(y-x>=125 for x,y in zip(a,a[1:])))
         self.assertLessEqual(len(a),3)
 
