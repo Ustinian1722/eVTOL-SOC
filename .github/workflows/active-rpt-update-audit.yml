@@ -40,13 +40,21 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Run isolated synthetic unit tests
         run: python -m unittest discover -s tests -p 'test_active_rpt_audit.py' -v
+      - name: Run next-RPT capacity-state tests
+        run: python -m unittest discover -s tests -p 'test_capacity_update_audit.py' -v
       - name: Analyze RPT-to-mission update domain shift
         run: python scripts/active_rpt_update_audit.py --output-dir active_rpt_audit_artifacts
+      - name: Evaluate past-only capacity-state updating against next RPT
+        run: python scripts/capacity_state_update_audit.py --output-dir active_rpt_audit_artifacts
       - name: Publish run summary
         if: always()
         run: |
           if [ -f active_rpt_audit_artifacts/report.md ]; then
             cat active_rpt_audit_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f active_rpt_audit_artifacts/capacity_update_report.md ]; then
+            printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            cat active_rpt_audit_artifacts/capacity_update_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Upload reproducible reports
         if: always()
