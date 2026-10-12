@@ -193,7 +193,9 @@ def prepare(cell:pd.DataFrame,gru_scaler:StandardScaler,aux_model):
 
 
 def step_predict(model,inputs:np.ndarray)->np.ndarray:
-    return model.predict(inputs,batch_size=256,verbose=0)[:,:,0]
+    # Direct Keras forward pass avoids the heavyweight predict() pipeline
+    # for each of thousands of small causal, complete-mission blocks.
+    return np.asarray(model(inputs,training=False))[:,:,0]
 
 
 def replay_signal(signal:CellSignal,model,gru_scaler,sourceZ,sourceY,source_theta,arm):
