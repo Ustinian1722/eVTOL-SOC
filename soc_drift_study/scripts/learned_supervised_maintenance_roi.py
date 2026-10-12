@@ -177,13 +177,13 @@ def train_select_development(meta):
     return model,out,str(winner),oof[str(winner)]
 
 
-def learned_schedule(cell,opportunities,model,budget,threshold):
+def learned_schedule(cell,opportunities,model,budget,threshold,feature_cache=None):
     if budget==0:return [],[]
     selected=[];preds=[];last=-MIN_PAUSE-1
     for t in opportunities:
         if len(selected)>=budget:break
         if t-last<MIN_PAUSE:continue
-        f=visible_features(cell,t)
+        f=feature_cache[t] if feature_cache is not None else visible_features(cell,t)
         prob=float(model.predict(pd.DataFrame([f])[FEATURE_NAMES])[0])
         # ROI is estimated future local improvement pp (not true lifetime J).
         preds.append({"event_test_index":t,"predicted_100mission_gain_pp":prob,
@@ -195,25 +195,26 @@ def learned_schedule(cell,opportunities,model,budget,threshold):
     return selected,preds
 
 
-def replay(cell,bank,opportunities,policy,budget,price,model,thresholds):
+def replay(cell,bank,opportunities,policy,budget,price,model,thresholds,feature_cache=None):
     if policy=="offline_oracle":
         events=oracle_DP(cell,bank,opportunities,budget,cost_per_event_pp=price)
         pred=[]
     elif policy=="learned_positive":
-        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=.0)
+        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=.0,feature_cache=feature_cache)
     elif policy=="learned_conservative":
-        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=.12)
+        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=.12,feature_cache=feature_cache)
     elif policy=="learned_75pct_OOF":
-        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=thresholds["q75"])
+        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=thresholds["q75"],feature_cache=feature_cache)
     elif policy=="learned_90pct_OOF":
-        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=thresholds["q90"])
+        events,pred=learned_schedule(cell,opportunities,model,budget,threshold=thresholds["q90"],feature_cache=feature_cache)
     elif policy=="learned_cost_value":
         # The model forecasts average improvement over 100 missions. To
         # compare with total-lifetime MAE-pp-equivalent event price, assume
         # a fixed 500-mission planning denominator known at design time.
         # This heuristic must never read the challenge cell's true horizon.
         events,pred=learned_schedule(
-            cell,opportunities,model,budget,threshold=price*PLANNING_HORIZON/FUTURE
+            cell,opportunities,model,budget,threshold=price*PLANNING_HORIZON/FUTURE,
+            feature_cache=feature_cache
         )
     else:
         events=online_schedule(cell,opportunities,policy,budget)
@@ -330,9 +331,13 @@ def main():
         cell=cells[cid]
         opportunities=scheduled_opportunities(cell)
         bank=event_models(cell,opportunities)
+        # Features are ONLINE-observable, completely determined before each
+        # purchase. Cache them once per cell to prevent quadratically
+        # recomputing phase-conditioned novelty across λ/threshold arms.
+        feature_cache={t:visible_features(cell,t) for t in opportunities}
         # OFFLINE, never used for decision or hyperparameter selection:
         for t in opportunities:
-            x=visible_features(cell,t)
+            x=feature_cache[t]
             true_gain=counterfactual_roi(cell,bank,t)
             pred=float(model.predict(pd.DataFrame([x])[FEATURE_NAMES])[0])
             diagnostics.append({"cell_id":cid,"event":t,
@@ -340,7 +345,7 @@ def main():
         for price in COSTS:
             for budget in (2,4):
                 for arm in DECISIONS:
-                    r,steps=replay(cell,bank,opportunities,arm,budget,price,model,thresholds)
+                    r,steps=replay(cell,bank,opportunities,arm,budget,price,model,thresholds,feature_cache)
                     rows.append(r)
                     for e in steps:
                         times.append({"cell_id":cid,"policy":arm,
