@@ -1,0 +1,60 @@
+name: Budget Cost Robust WHEN or Periodic Fallback
+
+on:
+  push:
+    branches: [research/budget-price-robust-when-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: budget-cost-when-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source_selected:
+    name: All 22 original cells source OOF budget/cost policy; retrospective 8-cell diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify scenario selector and prior causal audits
+        run: |
+          python -m unittest discover -s tests -p 'test_scenario_safe_when_selector.py' -v
+          python -m unittest discover -s tests -p 'test_deferral_regret_when.py' -v
+          python -m unittest discover -s tests -p 'test_stateful_marginal_roi_maintenance.py' -v
+      - name: Obtain only required original large LFS logs
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Source OOF scenario menu selection, then 8-cell retrospective replay
+        run: |
+          OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/scenario_safe_when_selector.py --out scenario_when_artifacts
+      - name: Scientific summary
+        if: always()
+        run: |
+          if test -s scenario_when_artifacts/report.md; then
+            cat scenario_when_artifacts/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: budget-price-scenario-when-no-update-periodic-safety
+          path: soc_drift_study/scenario_when_artifacts/
+          retention-days: 30
+          if-no-files-found: warn
