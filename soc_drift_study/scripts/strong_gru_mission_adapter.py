@@ -41,8 +41,8 @@ PRIOR=.08
 MIN_RELATIVE_GAIN=.05
 
 
-def assemble() -> pd.DataFrame:
-    pred=pd.read_csv(RESULTS/"gru_proxy_crosscell_predictions.csv")
+def assemble(prediction_file:Path|None=None) -> pd.DataFrame:
+    pred=pd.read_csv(prediction_file or (RESULTS/"gru_proxy_crosscell_predictions.csv"))
     labels=pd.read_csv(RESULTS/"soc_proxy_phase_labels.csv",
                        usecols=["cell_id","charge_cycle_index","phase_Ns","QDischarge_end_Ah"])
     keys=["cell_id","charge_cycle_index","phase_Ns"]
@@ -212,10 +212,11 @@ def report(cell:pd.DataFrame,by_seed:pd.DataFrame,macro:pd.DataFrame):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--output-dir",type=Path,required=True)
+    parser.add_argument("--prediction-file",type=Path,default=None)
     args=parser.parse_args()
     out=args.output_dir.resolve()
     out.mkdir(parents=True,exist_ok=True)
-    full=assemble()
+    full=assemble(args.prediction_file)
     rows=[];eventrows=[]
     for (cell,seed),grp in full.groupby(["cell_id","seed"],sort=True):
         m=missions_from_predictions(grp)
@@ -260,6 +261,7 @@ def main():
     (out/"report.md").write_text(report(cell,by_seed,macro),encoding="utf-8")
     (out/"metadata.json").write_text(json.dumps({
         "model":"fixed 5-fold three-seed leave-cell-out pretrained source GRU",
+        "prediction_file":str(args.prediction_file) if args.prediction_file else "original",
         "backbone_source_training_uses_historical_RPT_SOC_proxy":True,
         "online_update_never_uses_RPT":True,
         "online_update_never_uses_test_SOC_proxy":True,
