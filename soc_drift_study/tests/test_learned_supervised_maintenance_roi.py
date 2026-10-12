@@ -95,7 +95,8 @@ class RoiPolicyTests(unittest.TestCase):
                 x={name:float(rng.normal()) for name in FEATURE_NAMES}
                 rows.append({"cell_id":f"C{k}","future_100_SoCproxy_gain_pp":.15*x["last_voltage_z"]+.01,**x})
         frame=pd.DataFrame(rows)
-        model,cv,name=train_select_development(frame)
+        model,cv,name,oof=train_select_development(frame)
+        self.assertEqual(len(oof),len(frame))
         self.assertEqual(cv.dev_cells.min(),10)
         self.assertIn(name,{"ridge","huber","constant"})
         self.assertTrue(np.isfinite(model.predict(frame[FEATURE_NAMES])).all())
