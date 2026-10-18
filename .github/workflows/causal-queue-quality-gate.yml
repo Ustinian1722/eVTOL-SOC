@@ -1,0 +1,90 @@
+name: Causal SOC Reference Arrival and Source-only Quality Gate
+
+on:
+  push:
+    branches: [research/causal-reference-queue-quality-20261016]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: causal-queue-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nested_fold:
+    name: Causal queue fold ${{ matrix.fold }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        fold: [0, 1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Queue and existing causal tests
+        run: |
+          python -m unittest discover -s tests -p 'test_causal_queue_core.py' -v
+          python -m unittest discover -s tests -p 'test_anchor_noise_cara_nested.py' -v
+          python -m unittest discover -s tests -p 'test_nested_cell_when.py' -v
+      - name: Materialize original read-only LFS files
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Five-fold nested held-cell queue replay
+        run: |
+          OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/causal_queue_quality_gate.py \
+            --outer-fold ${{ matrix.fold }} --out causal_queue_fold
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: causal-queue-fold-${{ matrix.fold }}
+          path: soc_drift_study/causal_queue_fold/
+          retention-days: 30
+          if-no-files-found: warn
+
+  aggregate:
+    needs: nested_fold
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: causal-queue-fold-*
+          path: soc_drift_study/causal_queue_all/
+      - name: Check 22 unique held cells and paired uncertainty
+        run: |
+          python -u scripts/aggregate_causal_queue_quality.py \
+            --fold-dirs causal_queue_all/causal-queue-fold-0 causal_queue_all/causal-queue-fold-1 \
+                        causal_queue_all/causal-queue-fold-2 causal_queue_all/causal-queue-fold-3 \
+                        causal_queue_all/causal-queue-fold-4 --out causal_queue_22_summary
+      - run: cat causal_queue_22_summary/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: causal-queue-22cell-quality-results
+          path: soc_drift_study/causal_queue_22_summary/
+          retention-days: 30
+          if-no-files-found: warn
