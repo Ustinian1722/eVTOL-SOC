@@ -1,0 +1,60 @@
+name: Reference workload cost sensitivity (archived 22-cell five-fold replay)
+
+on:
+  push:
+    branches:
+      - research/reference-observability-audit-20261021
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install analysis dependencies
+        run: python -m pip install pandas numpy
+      - name: Retrieve successful raw-VAH-derived five-fold CI artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p soc_drift_study/workload_inputs
+          gh run download 39102686653 --repo Ustinian1722/eVTOL-SOC \
+            --name causal-queue-22cell-quality-results \
+            --dir soc_drift_study/workload_inputs
+          test -s soc_drift_study/workload_inputs/source_gate_grid.csv
+          test -s soc_drift_study/workload_inputs/source_gate_choices.csv
+          test -s soc_drift_study/workload_inputs/outer_22_cell_queue_gate.csv
+      - name: Recalculate source-only selection and paired cell bootstrap
+        run: |
+          python soc_drift_study/scripts/audit_reference_workload_core.py \
+            --input soc_drift_study/workload_inputs \
+            --out soc_drift_study/workload_cost_22cell
+      - name: Validate output cardinality and core conclusions
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          p='soc_drift_study/workload_cost_22cell/'
+          r=pd.read_csv(p+'workload_cost_summary.csv')
+          s=pd.read_csv(p+'source_only_choices.csv')
+          assert len(r)==300 and len(s)==75
+          q=r.query('delay==0 and gamma==0 and role=="source_selected"').set_index('noise')
+          assert abs(q.loc['nominal','active_minus_fixed']+0.093064)<1e-4
+          assert abs(q.loc['capacity_plus5pct','active_minus_fixed']-0.065706)<1e-4
+          assert (s.source_n_cells>=17).all()
+          print('PASS: 22 cells; source-only folds; reference-quality NO-GO preserved')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reference-workload-cost-22cell-archival-reanalysis
+          path: soc_drift_study/workload_cost_22cell/
+          retention-days: 30
+          if-no-files-found: warn
