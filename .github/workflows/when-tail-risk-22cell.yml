@@ -1,0 +1,49 @@
+name: WHEN 22-cell paired tail risk audit (archived causal queue)
+
+on:
+  push:
+    branches:
+      - research/when-cell-tail-risk-20261025
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install numpy pandas
+      - name: Fetch immutable successful 22-cell queue experiment artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p soc_drift_study/when_tail_inputs
+          gh run download 39102686653 --repo Ustinian1722/eVTOL-SOC \
+            --name causal-queue-22cell-quality-results \
+            --dir soc_drift_study/when_tail_inputs
+          test -s soc_drift_study/when_tail_inputs/outer_22_cell_queue_gate.csv
+          test -s soc_drift_study/when_tail_inputs/source_gate_choices.csv
+      - name: Paired tail and within-cell sign reversal audit
+        run: |
+          python soc_drift_study/scripts/audit_when_cell_tail_risk.py \
+            --input soc_drift_study/when_tail_inputs \
+            --out soc_drift_study/when_tail_outputs
+      - name: Physical-cell coverage and negative-result checks
+        run: |
+          python soc_drift_study/scripts/test_when_cell_tail_risk.py \
+            --input soc_drift_study/when_tail_inputs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: when-22cell-paired-tail-risk
+          path: soc_drift_study/when_tail_outputs/
+          retention-days: 30
+          if-no-files-found: warn
