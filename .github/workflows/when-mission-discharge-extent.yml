@@ -1,0 +1,59 @@
+name: WHEN normal mission discharge extent and diagnostic identifiability
+
+on:
+  push:
+    branches:
+      - research/when-mission-extent-identifiability-20261028
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies
+        run: python -m pip install "numpy>=1.26" "pandas>=2.2,<3"
+      - name: Synthetic non-leakage and data-quality tests
+        run: |
+          cd soc_drift_study/scripts
+          python -m unittest -v test_mission_discharge_extent
+      - name: Real 22-cell derived-table audit
+        run: |
+          python soc_drift_study/scripts/audit_mission_discharge_extent.py \
+            --labels soc_drift_study/results/soc_proxy_phase_labels.csv \
+            --segments soc_drift_study/results/segment_summary.csv \
+            --out soc_drift_study/mission_extent_outputs --require-22
+      - name: Check reproducibility and interpretation guardrails
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          p=Path('soc_drift_study/mission_extent_outputs')
+          m=pd.read_csv(p/'mission_discharge_extent.csv')
+          s=pd.read_csv(p/'summary_discharge_extent.csv')
+          assert m.cell_id.nunique()==22
+          assert not m.independent_full_highrate_diagnostic_verified.any()
+          assert (m.fraction_of_historical_anchor>=0).all()
+          assert s.subset.tolist()==['all','after_N20']
+          assert s.loc[1,'missions']>1000
+          print(s.to_string(index=False))
+          PY
+      - name: Publish report in Actions summary
+        if: success()
+        run: cat soc_drift_study/mission_extent_outputs/report40.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: when-22cell-mission-discharge-extent
+          path: soc_drift_study/mission_extent_outputs/
+          retention-days: 30
+          if-no-files-found: warn
