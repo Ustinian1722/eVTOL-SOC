@@ -101,7 +101,7 @@ def main():
       "真实目标方案需独立确认满电起点，按规定高倍率负载放至安全截止，完成后积分获得本次操作性容量，质控后才释放整段SOC参考；实际停机时间及代价不能从采样点数换算。",
       "## 决策",
       "GO：保留历史代理标签采购回放并明确标签可得性假设。NO-GO：不把它等同于100%至安全截止的高倍率维护检测，不虚构农业无人机现场验证。"]
-    report="\n\n".join(lines)+"\n"
+    report="\n".join(lines)+"\n"
     (a.out/"report40.md").write_text(report,encoding="utf-8")
     print(report)
 if __name__=="__main__":main()
