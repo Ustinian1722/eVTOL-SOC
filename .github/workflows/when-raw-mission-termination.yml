@@ -34,6 +34,10 @@ jobs:
         run: |
           python -u soc_drift_study/scripts/audit_raw_mission_termination.py \
             --root . --out soc_drift_study/raw_terminal_audit_outputs --require-22
+      - name: Examine cutoff-like terminal events by life stage and starting voltage
+        run: |
+          python -u soc_drift_study/scripts/analyze_raw_terminal_patterns.py \
+            --out soc_drift_study/raw_terminal_audit_outputs
       - name: Assert 22-cell coverage and interpretation limits
         run: |
           python - <<'PY'
@@ -49,7 +53,9 @@ jobs:
           PY
       - name: Publish Chinese report
         if: success()
-        run: cat soc_drift_study/raw_terminal_audit_outputs/report41.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          cat soc_drift_study/raw_terminal_audit_outputs/report41.md >> "$GITHUB_STEP_SUMMARY"
+          cat soc_drift_study/raw_terminal_audit_outputs/report41_cutoff_pattern.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
