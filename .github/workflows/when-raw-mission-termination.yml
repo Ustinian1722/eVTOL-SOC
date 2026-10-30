@@ -1,0 +1,70 @@
+name: WHEN original raw mission termination audit (22 cells)
+
+on:
+  push:
+    branches: [research/when-raw-termination-audit-20261029]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  raw-termination:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install 'numpy>=1.26' 'pandas>=2.2,<3'
+      - name: Synthetic strict matching and no-truth tests
+        run: |
+          cd soc_drift_study/scripts
+          python -m unittest -v test_raw_mission_termination
+      - name: Materialize only three LFS raw cells
+        run: |
+          git lfs install --local
+          git lfs pull --include='VAH01.csv,VAH11.csv,VAH12.csv' --exclude=''
+          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
+      - name: Run read-only raw 22-cell terminal audit
+        run: |
+          python -u soc_drift_study/scripts/audit_raw_mission_termination.py \
+            --root . --out soc_drift_study/raw_terminal_audit_outputs --require-22
+      - name: Examine cutoff-like terminal events by life stage and starting voltage
+        run: |
+          python -u soc_drift_study/scripts/analyze_raw_terminal_patterns.py \
+            --out soc_drift_study/raw_terminal_audit_outputs
+      - name: Check preceding charging block without assuming full SOC
+        run: |
+          python -u soc_drift_study/scripts/audit_pre_mission_charge.py \
+            --out soc_drift_study/raw_terminal_audit_outputs
+      - name: Assert 22-cell coverage and interpretation limits
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          p=Path('soc_drift_study/raw_terminal_audit_outputs')
+          m=pd.read_csv(p/'raw_terminal_missions.csv')
+          c=pd.read_csv(p/'per_cell_terminal_summary.csv')
+          assert len(c)==22 and m.cell_id.nunique()==22
+          assert m[m.end_ok].cell_id.nunique()==22
+          assert not m.independent_highrate_full_diagnostic_verified.any()
+          print(c.to_string(index=False))
+          PY
+      - name: Publish Chinese report
+        if: success()
+        run: |
+          cat soc_drift_study/raw_terminal_audit_outputs/report41.md >> "$GITHUB_STEP_SUMMARY"
+          cat soc_drift_study/raw_terminal_audit_outputs/report41_cutoff_pattern.md >> "$GITHUB_STEP_SUMMARY"
+          cat soc_drift_study/raw_terminal_audit_outputs/report41_prior_charge.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: when-raw-terminal-22cells-report41
+          path: soc_drift_study/raw_terminal_audit_outputs/
+          retention-days: 30
+          if-no-files-found: warn
