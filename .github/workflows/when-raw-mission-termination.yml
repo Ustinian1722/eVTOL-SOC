@@ -38,6 +38,10 @@ jobs:
         run: |
           python -u soc_drift_study/scripts/analyze_raw_terminal_patterns.py \
             --out soc_drift_study/raw_terminal_audit_outputs
+      - name: Check preceding charging block without assuming full SOC
+        run: |
+          python -u soc_drift_study/scripts/audit_pre_mission_charge.py \
+            --out soc_drift_study/raw_terminal_audit_outputs
       - name: Assert 22-cell coverage and interpretation limits
         run: |
           python - <<'PY'
@@ -56,6 +60,7 @@ jobs:
         run: |
           cat soc_drift_study/raw_terminal_audit_outputs/report41.md >> "$GITHUB_STEP_SUMMARY"
           cat soc_drift_study/raw_terminal_audit_outputs/report41_cutoff_pattern.md >> "$GITHUB_STEP_SUMMARY"
+          cat soc_drift_study/raw_terminal_audit_outputs/report41_prior_charge.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
