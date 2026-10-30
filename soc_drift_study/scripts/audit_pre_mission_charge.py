@@ -10,7 +10,7 @@ KEY=["cell_id","charge_cycle_index"]
 def attach_prior_charge(m,seg):
     charge=seg[seg.Ns.eq(0)&seg.duration_s.gt(100)].groupby(KEY,as_index=False).agg(
         charge_runs=("Ns","size"),charge_end_s=("time_end_s","max"),
-        charge_peak_V=("V_max","max"),charge_Qmax_mAh=("QCharge_max_mAh","max"),
+        charge_peak_V=("V_max","max"),charge_Qmax_Ah=("QCharge_max_Ah","max"),
         charge_duration_s=("duration_s","sum"))
     start=seg[seg.Ns.eq(4)].groupby(KEY,as_index=False).agg(
         mission_start_s=("time_start_s","min"))
@@ -48,7 +48,7 @@ def main():
             peak_ge_4p18=int(g.prior_charge_peak_ge_4p18.sum()),
             median_peak_charge_V=float(v.charge_peak_V.median()) if len(v) else np.nan,
             median_charge_gap_min=float(v.charge_to_mission_gap_min.median()) if len(v) else np.nan,
-            median_charge_Qmax_Ah=float(v.charge_Qmax_mAh.median()/1000) if len(v) else np.nan))
+            median_charge_Qmax_Ah=float(v.charge_Qmax_Ah.median()) if len(v) else np.nan))
     t=pd.DataFrame(rows)
     t.to_csv(a.out/"prior_charge_group_summary.csv",index=False)
     lines=["# 报告41补充：正常任务之前的Ns0充电块与满充可辨识性","",
