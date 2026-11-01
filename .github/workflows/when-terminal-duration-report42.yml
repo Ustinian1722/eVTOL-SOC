@@ -3,6 +3,8 @@ name: WHEN report42 terminal duration consistency (22 VAH cells)
 on:
   push:
     branches: [research/when-terminal-duration-identifiability-20261031]
+  pull_request:
+    branches: [research/when-raw-termination-audit-20261029]
   workflow_dispatch:
 
 permissions:
