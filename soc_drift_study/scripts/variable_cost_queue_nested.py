@@ -10,7 +10,7 @@ from stateful_marginal_roi_maintenance import FIELDS
 
 def quote(m):
     # Ordinary completed mission metadata, not paid SOC labels.
-    return .1*(.5+.25*m.n/100+.25*m.duration/960)
+    return .1*(.5+.25*m.X.shape[0]/100+.25*m.duration/960)
 
 def simulate(cell, models, arm, cap, lag, variable=True):
     events=[]; pending=[]; last=-1; spent=0.; losses=[]; trace=[]
