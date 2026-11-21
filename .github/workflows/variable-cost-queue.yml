@@ -2,7 +2,7 @@ name: Variable cost causal queue nested replay
 
 on:
   push:
-    branches: [research/reference-variable-cost-queue-stress-20261012]
+    branches: [research/when-cost-queue-nested-20261119]
   workflow_dispatch:
 
 permissions:
