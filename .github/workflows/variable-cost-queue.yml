@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   nested_fold:
-    name: Reference label bias and cost-staleness fold ${{ matrix.fold }}
+    name: Variable-cost causal queue fold ${{ matrix.fold }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
@@ -39,13 +39,33 @@ jobs:
           python -m unittest discover -s tests -p 'test_anchor_noise_cara_nested.py' -v
           python -m unittest discover -s tests -p 'test_nested_cell_when.py' -v
           python -m unittest discover -s tests -p 'test_deferral_regret_when.py' -v
-      - name: Materialize original LFS source batteries
+          python -m unittest discover -s tests -p 'test_variable_cost_queue_nested.py' -v
+      - name: Materialize original LFS source batteries and verify all 22 inputs
         working-directory: .
         run: |
           git lfs install --local
           git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
-          for f in VAH01.csv VAH11.csv VAH12.csv; do test "$(wc -c < "$f")" -gt 1000000; done
-      - name: Re-evaluate online active policy with perturbed paid labels
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "soc_drift_study/scripts")
+          from stateful_marginal_roi_maintenance import CELL_IDS
+          for cid in CELL_IDS:
+              path = Path(f"{cid}.csv")
+              assert path.is_file(), f"missing raw cell CSV: {path}"
+              assert path.stat().st_size > 1_000_000, f"unexpectedly small raw CSV: {path}"
+              with path.open("rb") as stream:
+                  head = stream.read(256)
+              assert b"git-lfs.github.com/spec/v1" not in head, f"unmaterialized LFS pointer: {path}"
+          for rel in (
+              "soc_drift_study/results/soc_proxy_phase_labels.csv",
+              "soc_drift_study/results/segment_summary.csv",
+          ):
+              path = Path(rel)
+              assert path.is_file() and path.stat().st_size > 1_000_000, f"missing/empty preprocessing input: {path}"
+          print(f"PASS: {len(CELL_IDS)} physical-cell raw CSVs and both preprocessing tables are present and materialized")
+          PY
+      - name: Re-evaluate online active policy with causal paid-label queue
         run: |
           OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/variable_cost_queue_nested.py \
             --fold ${{ matrix.fold }} --out variable_cost_fold
@@ -74,7 +94,7 @@ jobs:
         with:
           pattern: variable-cost-queue-fold-*
           path: soc_drift_study/variable_cost_all/
-      - name: Verify unique 22 physical cells and aggregate noise and latency
+      - name: Verify unique 22 physical cells and aggregate all scenarios
         run: |
           python -u scripts/variable_cost_queue_nested.py --aggregate variable_cost_all --out variable_cost_summary
       - run: cat variable_cost_summary/paired.csv >> "$GITHUB_STEP_SUMMARY"
