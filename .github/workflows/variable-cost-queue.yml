@@ -1,0 +1,107 @@
+name: Variable cost causal queue nested replay
+
+on:
+  push:
+    branches: [research/when-cost-queue-nested-20261119]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: variable-cost-queue-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nested_fold:
+    name: Variable-cost causal queue fold ${{ matrix.fold }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        fold: [0, 1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: soc_drift_study/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Original causal, nested split and anchor tests
+        run: |
+          python -m unittest discover -s tests -p 'test_anchor_noise_cara_nested.py' -v
+          python -m unittest discover -s tests -p 'test_nested_cell_when.py' -v
+          python -m unittest discover -s tests -p 'test_deferral_regret_when.py' -v
+          python -m unittest discover -s tests -p 'test_variable_cost_queue_nested.py' -v
+      - name: Materialize original LFS source batteries and verify all 22 inputs
+        working-directory: .
+        run: |
+          git lfs install --local
+          git lfs pull --include="VAH01.csv,VAH11.csv,VAH12.csv" --exclude=""
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "soc_drift_study/scripts")
+          from stateful_marginal_roi_maintenance import CELL_IDS
+          for cid in CELL_IDS:
+              path = Path(f"{cid}.csv")
+              assert path.is_file(), f"missing raw cell CSV: {path}"
+              assert path.stat().st_size > 1_000_000, f"unexpectedly small raw CSV: {path}"
+              with path.open("rb") as stream:
+                  head = stream.read(256)
+              assert b"git-lfs.github.com/spec/v1" not in head, f"unmaterialized LFS pointer: {path}"
+          for rel in (
+              "soc_drift_study/results/soc_proxy_phase_labels.csv",
+              "soc_drift_study/results/segment_summary.csv",
+          ):
+              path = Path(rel)
+              assert path.is_file() and path.stat().st_size > 1_000_000, f"missing/empty preprocessing input: {path}"
+          print(f"PASS: {len(CELL_IDS)} physical-cell raw CSVs and both preprocessing tables are present and materialized")
+          PY
+      - name: Re-evaluate online active policy with causal paid-label queue
+        run: |
+          OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -u scripts/variable_cost_queue_nested.py \
+            --fold ${{ matrix.fold }} --out variable_cost_fold
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: variable-cost-queue-fold-${{ matrix.fold }}
+          path: soc_drift_study/variable_cost_fold/
+          retention-days: 30
+          if-no-files-found: warn
+
+  aggregate:
+    needs: nested_fold
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: soc_drift_study
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: variable-cost-queue-fold-*
+          path: soc_drift_study/variable_cost_all/
+      - name: Verify unique 22 physical cells and aggregate all scenarios
+        run: |
+          python -u scripts/variable_cost_queue_nested.py --aggregate variable_cost_all --out variable_cost_summary
+      - run: cat variable_cost_summary/paired.csv >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: variable-cost-queue-all22-paired-robustness
+          path: soc_drift_study/variable_cost_summary/
+          retention-days: 30
+          if-no-files-found: warn
